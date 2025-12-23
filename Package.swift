@@ -42,8 +42,7 @@ let package = Package(
         // Test target
         .testTarget(
             name: "AudioPrimeTests",
-            dependencies: ["AudioPrime", "AudioPrimeCore"],
-            path: "AudioPrimeTests"
+            dependencies: ["AudioPrime", "AudioPrimeCore"]
         )
     ],
     cxxLanguageStandard: .cxx17
