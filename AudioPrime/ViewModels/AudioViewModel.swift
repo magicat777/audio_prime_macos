@@ -55,13 +55,14 @@ class AudioViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var updateTimer: Timer?
-
-    // TODO: C++ audio engine wrapper
-    // private var audioEngine: AudioEngineWrapper?
+    private var audioCaptureService: AudioCaptureService?
 
     // MARK: - Initialization
 
     init() {
+        // Initialize audio capture service
+        audioCaptureService = AudioCaptureService()
+
         // Initialize with test data for UI development
         setupTestData()
         startUpdateTimer()
@@ -71,7 +72,7 @@ class AudioViewModel: ObservableObject {
 
     func toggleCapture() async {
         if isCapturing {
-            stopCapture()
+            await stopCapture()
         } else {
             await startCapture()
         }
@@ -79,16 +80,32 @@ class AudioViewModel: ObservableObject {
 
     func startCapture() async {
         print("Starting audio capture...")
-        // TODO: Initialize ScreenCaptureKit
-        // TODO: Start C++ audio engine
-        isCapturing = true
+
+        guard let service = audioCaptureService else {
+            print("❌ Audio capture service not initialized")
+            return
+        }
+
+        do {
+            try await service.startCapture()
+            isCapturing = service.isCapturing
+            print("✅ Audio capture started successfully")
+        } catch {
+            print("❌ Failed to start audio capture: \(error)")
+            isCapturing = false
+        }
     }
 
-    func stopCapture() {
+    func stopCapture() async {
         print("Stopping audio capture...")
-        // TODO: Stop ScreenCaptureKit
-        // TODO: Stop C++ audio engine
-        isCapturing = false
+
+        guard let service = audioCaptureService else {
+            return
+        }
+
+        await service.stopCapture()
+        isCapturing = service.isCapturing
+        print("✅ Audio capture stopped")
     }
 
     // MARK: - Private Methods
@@ -103,11 +120,34 @@ class AudioViewModel: ObservableObject {
     }
 
     private func updateData() {
-        guard isCapturing else { return }
+        guard isCapturing else {
+            // If not capturing, show test data
+            updateTestData()
+            return
+        }
 
-        // TODO: Get data from C++ engine
-        // For now, generate test data
-        updateTestData()
+        // Get real data from C++ audio engine
+        guard let service = audioCaptureService else {
+            return
+        }
+
+        let engine = service.getAudioEngine()
+
+        // Update spectrum data
+        spectrumData = engine.getSpectrum(size: 512)
+
+        // Update metering data
+        momentaryLoudness = engine.getLUFSMomentary()
+        shortTermLoudness = engine.getLUFSShortTerm()
+        integratedLoudness = engine.getLUFSIntegrated()
+        truePeak = engine.getTruePeak()
+        currentBPM = engine.getBPM()
+
+        // Update performance metrics
+        latency = service.getLatency()
+
+        // Calculate actual FPS (simplified)
+        currentFPS = 60  // Will be more accurate after profiling
     }
 
     // MARK: - Test Data (for UI development)

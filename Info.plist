@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>AudioPrime</string>
+    <key>CFBundleDisplayName</key>
+    <string>AudioPrime</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.audioprime.macos</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+
+    <!-- Screen Recording Permission -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>AudioPrime needs screen recording permission to capture system audio for real-time spectrum analysis. This permission is required to analyze audio playing on your Mac.</string>
+
+    <!-- Microphone Permission (optional fallback) -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>AudioPrime can optionally use your microphone for audio analysis and voice detection features.</string>
+
+    <!-- High Resolution Capable -->
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <!-- Principal Class -->
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+
+    <!-- App Category -->
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.music</string>
+</dict>
+</plist>
