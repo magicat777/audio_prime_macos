@@ -30,11 +30,11 @@ class AudioCaptureService: NSObject, ObservableObject {
     private let channelCount: Int = 2  // Stereo
     private let bufferSize: Int = 512
 
-    // Performance tracking (atomic access via DispatchQueue)
+    // Performance tracking (thread-safe via DispatchQueue)
     private let metricsQueue = DispatchQueue(label: "com.audioprime.metrics")
-    private var _frameCount: Int64 = 0
-    private var _lastFrameTime: Date?
-    private var _droppedFrames: Int = 0
+    nonisolated(unsafe) private var _frameCount: Int64 = 0
+    nonisolated(unsafe) private var _lastFrameTime: Date?
+    nonisolated(unsafe) private var _droppedFrames: Int = 0
 
     private var frameCount: Int64 {
         get { metricsQueue.sync { _frameCount } }
