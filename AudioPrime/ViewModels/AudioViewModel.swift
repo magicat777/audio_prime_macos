@@ -76,6 +76,11 @@ class AudioViewModel: ObservableObject {
     private var audioCaptureService: AudioCaptureService?
     private var debugSpectrumCount = 0
 
+    // FPS tracking
+    private var frameCount = 0
+    private var lastFPSUpdate = Date()
+    private let sampleRate: Double = 48000.0
+
     // MARK: - Initialization
 
     init() {
@@ -174,10 +179,18 @@ class AudioViewModel: ObservableObject {
         currentBPM = engine.getBPM()
 
         // Update performance metrics
-        latency = service.getLatency()
+        // Latency is based on FFT size (time to accumulate enough samples)
+        latency = Double(fftSize) / sampleRate * 1000.0  // in milliseconds
 
-        // Calculate actual FPS (simplified)
-        currentFPS = 60  // Will be more accurate after profiling
+        // Calculate actual FPS
+        frameCount += 1
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastFPSUpdate)
+        if elapsed >= 1.0 {
+            currentFPS = Int(Double(frameCount) / elapsed)
+            frameCount = 0
+            lastFPSUpdate = now
+        }
     }
 
     // MARK: - Test Data (for UI development)
