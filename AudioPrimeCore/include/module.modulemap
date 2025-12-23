@@ -1,0 +1,4 @@
+module AudioPrimeCore {
+    header "AudioEngine.h"
+    export *
+}
