@@ -58,6 +58,8 @@ class AudioViewModel: ObservableObject {
     @Published var rightLevel: Float = 0.0
     @Published var midLevel: Float = 0.0
     @Published var sideLevel: Float = 0.0
+    @Published var goniometerX: [Float] = Array(repeating: 0.0, count: 512)
+    @Published var goniometerY: [Float] = Array(repeating: 0.0, count: 512)
 
     // Voice analysis
     @Published var voiceDetected = false
@@ -177,6 +179,18 @@ class AudioViewModel: ObservableObject {
         integratedLoudness = engine.getLUFSIntegrated()
         truePeak = engine.getTruePeak()
         currentBPM = engine.getBPM()
+
+        // Update stereo analysis
+        stereoCorrelation = engine.getStereoCorrelation()
+        leftLevel = engine.getLeftLevel()
+        rightLevel = engine.getRightLevel()
+        midLevel = engine.getMidLevel()
+        sideLevel = engine.getSideLevel()
+
+        // Update goniometer data
+        let goniometerData = engine.getGoniometerPoints(size: 512)
+        goniometerX = goniometerData.x
+        goniometerY = goniometerData.y
 
         // Update performance metrics
         // Latency is based on FFT size (time to accumulate enough samples)

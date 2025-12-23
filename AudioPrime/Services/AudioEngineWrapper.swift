@@ -81,4 +81,47 @@ class AudioEngineWrapper {
         guard let ref = engineRef else { return 0.0 }
         return audio_engine_get_bpm(ref)
     }
+
+    // MARK: - Stereo Analysis
+
+    func getStereoCorrelation() -> Float {
+        guard let ref = engineRef else { return 1.0 }
+        return audio_engine_get_stereo_correlation(ref)
+    }
+
+    func getLeftLevel() -> Float {
+        guard let ref = engineRef else { return 0.0 }
+        return audio_engine_get_left_level(ref)
+    }
+
+    func getRightLevel() -> Float {
+        guard let ref = engineRef else { return 0.0 }
+        return audio_engine_get_right_level(ref)
+    }
+
+    func getMidLevel() -> Float {
+        guard let ref = engineRef else { return 0.0 }
+        return audio_engine_get_mid_level(ref)
+    }
+
+    func getSideLevel() -> Float {
+        guard let ref = engineRef else { return 0.0 }
+        return audio_engine_get_side_level(ref)
+    }
+
+    func getGoniometerPoints(size: Int = 512) -> (x: [Float], y: [Float]) {
+        guard let ref = engineRef else {
+            return (Array(repeating: 0, count: size), Array(repeating: 0, count: size))
+        }
+
+        var xPoints = [Float](repeating: 0, count: size)
+        var yPoints = [Float](repeating: 0, count: size)
+        audio_engine_get_goniometer_points(ref, &xPoints, &yPoints, Int32(size))
+        return (xPoints, yPoints)
+    }
+
+    func getGoniometerPointCount() -> Int {
+        guard let ref = engineRef else { return 0 }
+        return Int(audio_engine_get_goniometer_point_count(ref))
+    }
 }

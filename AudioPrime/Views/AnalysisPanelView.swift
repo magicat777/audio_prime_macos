@@ -75,31 +75,25 @@ struct StereoAnalysisView: View {
                         .font(.caption.bold())
                         .foregroundColor(.secondary)
 
-                    HStack(spacing: 12) {
-                        MiniMeter(label: "Mid", value: viewModel.midLevel, color: .blue)
-                        MiniMeter(label: "Side", value: viewModel.sideLevel, color: .orange)
+                    HStack(spacing: 20) {
+                        StereoMeter(label: "Mid", value: viewModel.midLevel, color: .blue)
+                        StereoMeter(label: "Side", value: viewModel.sideLevel, color: .orange)
                     }
+                    .frame(height: 80)
                 }
                 .padding()
                 .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
                 .cornerRadius(8)
 
-                // Goniometer placeholder
+                // Goniometer (Lissajous display)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Goniometer")
                         .font(.caption.bold())
                         .foregroundColor(.secondary)
 
-                    ZStack {
-                        Circle()
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-
-                        // Placeholder Lissajous curve
-                        Text("◇")
-                            .font(.system(size: 60))
-                            .foregroundColor(.green.opacity(0.5))
-                    }
-                    .frame(height: 150)
+                    GoniometerView(xPoints: viewModel.goniometerX, yPoints: viewModel.goniometerY)
+                        .frame(minHeight: 200)
+                        .frame(maxHeight: 300)
                 }
                 .padding()
                 .background(Color.black.opacity(0.8))
@@ -195,7 +189,8 @@ struct VoiceAnalysisView: View {
     }
 }
 
-struct MiniMeter: View {
+// MARK: - Stereo Meter
+struct StereoMeter: View {
     let label: String
     let value: Float
     let color: Color
@@ -203,25 +198,118 @@ struct MiniMeter: View {
     var body: some View {
         VStack(spacing: 4) {
             Text(label)
-                .font(.caption2.bold())
+                .font(.caption.bold())
                 .foregroundColor(.secondary)
 
             GeometryReader { geometry in
                 ZStack(alignment: .bottom) {
-                    Rectangle()
+                    // Background
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(Color.gray.opacity(0.2))
 
-                    Rectangle()
+                    // Level bar
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(color)
-                        .frame(height: geometry.size.height * CGFloat(value))
+                        .frame(height: geometry.size.height * CGFloat(min(1.0, value * 3)))  // Scale up for visibility
                 }
             }
-            .frame(width: 40)
-            .cornerRadius(4)
+            .frame(width: 30)
 
             Text(String(format: "%.0f%%", value * 100))
                 .font(.caption2.monospacedDigit())
                 .foregroundColor(.secondary)
+        }
+    }
+}
+
+// MARK: - Goniometer View
+struct GoniometerView: View {
+    let xPoints: [Float]
+    let yPoints: [Float]
+
+    var body: some View {
+        Canvas { context, size in
+            let centerX = size.width / 2
+            let centerY = size.height / 2
+            let radius = min(size.width, size.height) / 2 - 15  // Leave room for labels
+
+            // Draw reference circle
+            let circlePath = Path(ellipseIn: CGRect(
+                x: centerX - radius,
+                y: centerY - radius,
+                width: radius * 2,
+                height: radius * 2
+            ))
+            context.stroke(circlePath, with: .color(.gray.opacity(0.3)), lineWidth: 1)
+
+            // Draw crosshairs (M/S axes)
+            var crossPath = Path()
+            crossPath.move(to: CGPoint(x: centerX - radius, y: centerY))
+            crossPath.addLine(to: CGPoint(x: centerX + radius, y: centerY))
+            crossPath.move(to: CGPoint(x: centerX, y: centerY - radius))
+            crossPath.addLine(to: CGPoint(x: centerX, y: centerY + radius))
+            context.stroke(crossPath, with: .color(.gray.opacity(0.3)), lineWidth: 1)
+
+            // Draw diagonal lines (L and R axes at 45 degrees)
+            var diagPath = Path()
+            let diag = radius * 0.707
+            diagPath.move(to: CGPoint(x: centerX - diag, y: centerY - diag))
+            diagPath.addLine(to: CGPoint(x: centerX + diag, y: centerY + diag))
+            diagPath.move(to: CGPoint(x: centerX + diag, y: centerY - diag))
+            diagPath.addLine(to: CGPoint(x: centerX - diag, y: centerY + diag))
+            context.stroke(diagPath, with: .color(.gray.opacity(0.2)), lineWidth: 1)
+
+            // Find max amplitude for auto-scaling
+            var maxAmp: Float = 0.001  // Minimum to avoid division by zero
+            for i in 0..<min(xPoints.count, yPoints.count) {
+                let amp = sqrt(xPoints[i] * xPoints[i] + yPoints[i] * yPoints[i])
+                maxAmp = max(maxAmp, amp)
+            }
+
+            // Scale factor to fit within circle (with some headroom)
+            let scaleFactor = radius * 0.85 / CGFloat(maxAmp)
+
+            // Draw Lissajous curve
+            guard xPoints.count > 1 && yPoints.count > 1 else { return }
+
+            var lissajousPath = Path()
+            var hasStarted = false
+
+            // Use stride to reduce points for performance
+            let pointStride = max(1, xPoints.count / 256)
+
+            for i in Swift.stride(from: 0, to: min(xPoints.count, yPoints.count), by: pointStride) {
+                // X is Mid (horizontal), Y is Side (vertical)
+                let x = centerX + CGFloat(xPoints[i]) * scaleFactor
+                let y = centerY - CGFloat(yPoints[i]) * scaleFactor  // Invert Y for screen coords
+
+                if !hasStarted {
+                    lissajousPath.move(to: CGPoint(x: x, y: y))
+                    hasStarted = true
+                } else {
+                    lissajousPath.addLine(to: CGPoint(x: x, y: y))
+                }
+            }
+
+            context.stroke(lissajousPath, with: .color(.green.opacity(0.8)), lineWidth: 1.5)
+
+            // Draw axis labels
+            context.draw(
+                Text("+M").font(.caption2).foregroundColor(.gray.opacity(0.6)),
+                at: CGPoint(x: centerX + radius + 12, y: centerY)
+            )
+            context.draw(
+                Text("+S").font(.caption2).foregroundColor(.gray.opacity(0.6)),
+                at: CGPoint(x: centerX, y: centerY - radius - 8)
+            )
+            context.draw(
+                Text("L").font(.caption2).foregroundColor(.gray.opacity(0.6)),
+                at: CGPoint(x: centerX - diag - 8, y: centerY - diag - 8)
+            )
+            context.draw(
+                Text("R").font(.caption2).foregroundColor(.gray.opacity(0.6)),
+                at: CGPoint(x: centerX + diag + 8, y: centerY - diag - 8)
+            )
         }
     }
 }

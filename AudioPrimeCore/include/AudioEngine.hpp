@@ -36,6 +36,15 @@ public:
     float getTruePeak() const { return true_peak_; }
     float getBPM() const { return bpm_; }
 
+    // Stereo analysis
+    float getStereoCorrelation() const { return stereo_correlation_; }
+    float getLeftLevel() const { return left_level_; }
+    float getRightLevel() const { return right_level_; }
+    float getMidLevel() const { return mid_level_; }
+    float getSideLevel() const { return side_level_; }
+    void getGoniometerPoints(float* xOut, float* yOut, int size);
+    int getGoniometerPointCount() const { return static_cast<int>(goniometer_x_.size()); }
+
 private:
     // Configuration
     double sample_rate_;
@@ -60,10 +69,21 @@ private:
     float true_peak_;
     float bpm_;
 
+    // Stereo analysis results
+    float stereo_correlation_;
+    float left_level_;
+    float right_level_;
+    float mid_level_;
+    float side_level_;
+    std::vector<float> goniometer_x_;
+    std::vector<float> goniometer_y_;
+    static constexpr int kGoniometerPoints = 512;  // Points for Lissajous display
+
     // Internal methods
     void initializeFFT();
     void cleanupFFT();
     void performFFT(const float* input, int inputSize);
+    void processStereoAnalysis(const float* audioData, int frameCount);
 };
 
 } // namespace AudioPrime

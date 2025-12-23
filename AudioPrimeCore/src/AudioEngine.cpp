@@ -23,10 +23,17 @@ AudioEngine::AudioEngine()
     , lufs_integrated_(-23.0f)
     , true_peak_(0.0f)
     , bpm_(0.0f)
+    , stereo_correlation_(1.0f)
+    , left_level_(0.0f)
+    , right_level_(0.0f)
+    , mid_level_(0.0f)
+    , side_level_(0.0f)
 {
     spectrum_data_.resize(512, 0.0f);
     prev_spectrum_.resize(512, 0.0f);
     audio_buffer_.resize(fft_size_, 0.0f);
+    goniometer_x_.resize(kGoniometerPoints, 0.0f);
+    goniometer_y_.resize(kGoniometerPoints, 0.0f);
     initializeFFT();
 }
 
@@ -82,6 +89,11 @@ void AudioEngine::cleanupFFT() {
 void AudioEngine::process(const float* audioData, int frameCount, int channelCount) {
     if (!audioData || frameCount <= 0) return;
 
+    // Process stereo analysis on the raw interleaved data
+    if (channelCount == 2) {
+        processStereoAnalysis(audioData, frameCount);
+    }
+
     // Mix stereo to mono and accumulate into ring buffer
     for (int i = 0; i < frameCount; ++i) {
         float sample;
@@ -106,7 +118,6 @@ void AudioEngine::process(const float* audioData, int frameCount, int channelCou
     }
 
     // TODO: Implement LUFS, beat detection, etc.
-    // For now, just placeholder values
 }
 
 void AudioEngine::performFFT(const float* input, int inputSize) {
@@ -185,6 +196,85 @@ void AudioEngine::getSpectrum(float* output, int size) {
     std::copy(spectrum_data_.begin(), spectrum_data_.begin() + copySize, output);
 }
 
+void AudioEngine::processStereoAnalysis(const float* audioData, int frameCount) {
+    if (frameCount <= 0) return;
+
+    // Calculate RMS levels for left and right channels
+    float leftSum = 0.0f, rightSum = 0.0f;
+    float correlationSum = 0.0f;
+    float leftSquareSum = 0.0f, rightSquareSum = 0.0f;
+
+    // Limit samples for goniometer to avoid buffer overflow
+    int goniometerSamples = std::min(frameCount, kGoniometerPoints);
+
+    for (int i = 0; i < frameCount; ++i) {
+        float left = audioData[i * 2];
+        float right = audioData[i * 2 + 1];
+
+        // Accumulate for RMS
+        leftSum += left * left;
+        rightSum += right * right;
+
+        // Accumulate for correlation (Pearson correlation coefficient)
+        correlationSum += left * right;
+        leftSquareSum += left * left;
+        rightSquareSum += right * right;
+
+        // Store samples for goniometer (downsample if needed)
+        if (i < goniometerSamples) {
+            // Goniometer: X = (L+R)/2 (Mid), Y = (L-R)/2 (Side)
+            // Rotated 45 degrees for standard Lissajous display
+            goniometer_x_[i] = (left + right) * 0.5f;  // Mid
+            goniometer_y_[i] = (left - right) * 0.5f;  // Side
+        }
+    }
+
+    // Calculate RMS levels (with smoothing)
+    float newLeftLevel = std::sqrt(leftSum / frameCount);
+    float newRightLevel = std::sqrt(rightSum / frameCount);
+
+    // Apply smoothing to levels
+    float levelSmoothing = 0.8f;  // Fast attack, slower decay
+    left_level_ = std::max(newLeftLevel, left_level_ * levelSmoothing);
+    right_level_ = std::max(newRightLevel, right_level_ * levelSmoothing);
+
+    // Calculate Mid/Side levels
+    // Mid = (L + R) / 2, Side = (L - R) / 2
+    float midSum = 0.0f, sideSum = 0.0f;
+    for (int i = 0; i < frameCount; ++i) {
+        float left = audioData[i * 2];
+        float right = audioData[i * 2 + 1];
+        float mid = (left + right) * 0.5f;
+        float side = (left - right) * 0.5f;
+        midSum += mid * mid;
+        sideSum += side * side;
+    }
+
+    float newMidLevel = std::sqrt(midSum / frameCount);
+    float newSideLevel = std::sqrt(sideSum / frameCount);
+
+    mid_level_ = std::max(newMidLevel, mid_level_ * levelSmoothing);
+    side_level_ = std::max(newSideLevel, side_level_ * levelSmoothing);
+
+    // Calculate stereo correlation
+    // correlation = sum(L*R) / sqrt(sum(L^2) * sum(R^2))
+    float denominator = std::sqrt(leftSquareSum * rightSquareSum);
+    if (denominator > 1e-10f) {
+        float newCorrelation = correlationSum / denominator;
+        // Smooth correlation
+        stereo_correlation_ = stereo_correlation_ * 0.9f + newCorrelation * 0.1f;
+    }
+
+    // Clamp correlation to valid range
+    stereo_correlation_ = std::max(-1.0f, std::min(1.0f, stereo_correlation_));
+}
+
+void AudioEngine::getGoniometerPoints(float* xOut, float* yOut, int size) {
+    int copySize = std::min(size, static_cast<int>(goniometer_x_.size()));
+    std::copy(goniometer_x_.begin(), goniometer_x_.begin() + copySize, xOut);
+    std::copy(goniometer_y_.begin(), goniometer_y_.begin() + copySize, yOut);
+}
+
 } // namespace AudioPrime
 
 // C API implementation
@@ -232,6 +322,36 @@ float audio_engine_get_true_peak(AudioEngineRef engine) {
 
 float audio_engine_get_bpm(AudioEngineRef engine) {
     return engine ? engine->engine.getBPM() : 0.0f;
+}
+
+float audio_engine_get_stereo_correlation(AudioEngineRef engine) {
+    return engine ? engine->engine.getStereoCorrelation() : 1.0f;
+}
+
+float audio_engine_get_left_level(AudioEngineRef engine) {
+    return engine ? engine->engine.getLeftLevel() : 0.0f;
+}
+
+float audio_engine_get_right_level(AudioEngineRef engine) {
+    return engine ? engine->engine.getRightLevel() : 0.0f;
+}
+
+float audio_engine_get_mid_level(AudioEngineRef engine) {
+    return engine ? engine->engine.getMidLevel() : 0.0f;
+}
+
+float audio_engine_get_side_level(AudioEngineRef engine) {
+    return engine ? engine->engine.getSideLevel() : 0.0f;
+}
+
+void audio_engine_get_goniometer_points(AudioEngineRef engine, float* xOut, float* yOut, int32_t size) {
+    if (engine) {
+        engine->engine.getGoniometerPoints(xOut, yOut, size);
+    }
+}
+
+int32_t audio_engine_get_goniometer_point_count(AudioEngineRef engine) {
+    return engine ? engine->engine.getGoniometerPointCount() : 0;
 }
 
 void audio_engine_set_sample_rate(AudioEngineRef engine, double sampleRate) {

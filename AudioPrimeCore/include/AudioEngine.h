@@ -34,6 +34,15 @@ float audio_engine_get_lufs_integrated(AudioEngineRef engine);
 float audio_engine_get_true_peak(AudioEngineRef engine);
 float audio_engine_get_bpm(AudioEngineRef engine);
 
+// Stereo analysis
+float audio_engine_get_stereo_correlation(AudioEngineRef engine);
+float audio_engine_get_left_level(AudioEngineRef engine);
+float audio_engine_get_right_level(AudioEngineRef engine);
+float audio_engine_get_mid_level(AudioEngineRef engine);
+float audio_engine_get_side_level(AudioEngineRef engine);
+void audio_engine_get_goniometer_points(AudioEngineRef engine, float* xOut, float* yOut, int32_t size);
+int32_t audio_engine_get_goniometer_point_count(AudioEngineRef engine);
+
 // Configuration
 void audio_engine_set_sample_rate(AudioEngineRef engine, double sampleRate);
 void audio_engine_set_fft_size(AudioEngineRef engine, int32_t size);
