@@ -45,7 +45,7 @@ struct SpectrumPanelView: View {
             .padding(12)
 
             // Controls
-            SpectrumControlsView()
+            SpectrumControlsView(viewModel: viewModel)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
         }
@@ -67,8 +67,7 @@ struct SpectrumPanelView: View {
 }
 
 struct SpectrumControlsView: View {
-    @State private var fftSize = 512
-    @State private var smoothing: Double = 0.5
+    @ObservedObject var viewModel: AudioViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -76,7 +75,7 @@ struct SpectrumControlsView: View {
                 Text("FFT Size:")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Picker("", selection: $fftSize) {
+                Picker("", selection: $viewModel.fftSize) {
                     Text("512").tag(512)
                     Text("1024").tag(1024)
                     Text("2048").tag(2048)
@@ -90,8 +89,8 @@ struct SpectrumControlsView: View {
                 Text("Smoothing:")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Slider(value: $smoothing, in: 0...1)
-                Text("\(Int(smoothing * 100))%")
+                Slider(value: $viewModel.smoothing, in: 0...1)
+                Text("\(Int(viewModel.smoothing * 100))%")
                     .font(.caption.monospacedDigit())
                     .foregroundColor(.secondary)
                     .frame(width: 40)

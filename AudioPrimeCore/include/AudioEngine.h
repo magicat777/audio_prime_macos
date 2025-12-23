@@ -37,6 +37,7 @@ float audio_engine_get_bpm(AudioEngineRef engine);
 // Configuration
 void audio_engine_set_sample_rate(AudioEngineRef engine, double sampleRate);
 void audio_engine_set_fft_size(AudioEngineRef engine, int32_t size);
+void audio_engine_set_smoothing(AudioEngineRef engine, float smoothing);
 
 #ifdef __cplusplus
 }

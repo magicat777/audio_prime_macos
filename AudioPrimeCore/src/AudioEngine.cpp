@@ -14,8 +14,10 @@ namespace AudioPrime {
 AudioEngine::AudioEngine()
     : sample_rate_(48000.0)
     , fft_size_(512)
+    , smoothing_(0.5f)
     , fft_setup_(nullptr)
     , log2n_(0)
+    , buffer_write_pos_(0)
     , lufs_momentary_(-23.0f)
     , lufs_shortterm_(-23.0f)
     , lufs_integrated_(-23.0f)
@@ -23,6 +25,8 @@ AudioEngine::AudioEngine()
     , bpm_(0.0f)
 {
     spectrum_data_.resize(512, 0.0f);
+    prev_spectrum_.resize(512, 0.0f);
+    audio_buffer_.resize(fft_size_, 0.0f);
     initializeFFT();
 }
 
@@ -39,8 +43,15 @@ void AudioEngine::setFFTSize(int size) {
 
     cleanupFFT();
     fft_size_ = size;
-    spectrum_data_.resize(fft_size_, 0.0f);
+    spectrum_data_.resize(512, 0.0f);  // Always 512 display bars
+    prev_spectrum_.resize(512, 0.0f);
+    audio_buffer_.resize(fft_size_, 0.0f);
+    buffer_write_pos_ = 0;
     initializeFFT();
+}
+
+void AudioEngine::setSmoothing(float smoothing) {
+    smoothing_ = std::max(0.0f, std::min(1.0f, smoothing));
 }
 
 void AudioEngine::initializeFFT() {
@@ -69,22 +80,30 @@ void AudioEngine::cleanupFFT() {
 }
 
 void AudioEngine::process(const float* audioData, int frameCount, int channelCount) {
-    if (!audioData || frameCount < fft_size_) return;
+    if (!audioData || frameCount <= 0) return;
 
-    // For stereo, mix to mono for FFT (we'll do stereo analysis separately later)
-    std::vector<float> monoBuffer(fft_size_);
-
-    if (channelCount == 2) {
-        // Mix stereo to mono
-        for (int i = 0; i < fft_size_; ++i) {
-            monoBuffer[i] = (audioData[i * 2] + audioData[i * 2 + 1]) * 0.5f;
+    // Mix stereo to mono and accumulate into ring buffer
+    for (int i = 0; i < frameCount; ++i) {
+        float sample;
+        if (channelCount == 2) {
+            sample = (audioData[i * 2] + audioData[i * 2 + 1]) * 0.5f;
+        } else {
+            sample = audioData[i];
         }
-    } else {
-        // Copy mono
-        std::copy(audioData, audioData + fft_size_, monoBuffer.begin());
-    }
 
-    performFFT(monoBuffer.data(), fft_size_);
+        audio_buffer_[buffer_write_pos_] = sample;
+        buffer_write_pos_++;
+
+        // When buffer is full, perform FFT
+        if (buffer_write_pos_ >= static_cast<size_t>(fft_size_)) {
+            performFFT(audio_buffer_.data(), fft_size_);
+
+            // Use 50% overlap for smoother updates (keep second half)
+            size_t overlap = fft_size_ / 2;
+            std::copy(audio_buffer_.begin() + overlap, audio_buffer_.end(), audio_buffer_.begin());
+            buffer_write_pos_ = overlap;
+        }
+    }
 
     // TODO: Implement LUFS, beat detection, etc.
     // For now, just placeholder values
@@ -119,14 +138,46 @@ void AudioEngine::performFFT(const float* input, int inputSize) {
     }
 
     // Map to logarithmic frequency scale (512 bars from 20Hz to 20kHz)
-    // Simple linear mapping for now, will implement proper log mapping later
-    int outputSize = std::min(512, static_cast<int>(magnitudes.size()));
-    std::copy(magnitudes.begin(), magnitudes.begin() + outputSize, spectrum_data_.begin());
+    // FFT gives us fft_size/2 bins, we need to map to 512 display bars
+    int numBins = fft_size_ / 2;  // e.g., 256 bins for 512 FFT
+    float binFreqResolution = sample_rate_ / fft_size_;  // Hz per bin (e.g., 93.75 Hz)
 
-    // Normalize to 0-1 range
-    for (auto& val : spectrum_data_) {
-        val = (val + 80.0f) / 80.0f; // Map -80dB to 0dB → 0 to 1
+    // Logarithmic frequency mapping from 20Hz to 20kHz
+    const float minFreq = 20.0f;
+    const float maxFreq = 20000.0f;
+    const float logMin = std::log10(minFreq);
+    const float logMax = std::log10(maxFreq);
+
+    for (int i = 0; i < 512; ++i) {
+        // Calculate the frequency for this display bar (logarithmic scale)
+        float logFreq = logMin + (logMax - logMin) * i / 511.0f;
+        float freq = std::pow(10.0f, logFreq);
+
+        // Convert frequency to FFT bin index
+        float binIndex = freq / binFreqResolution;
+
+        // Clamp to valid bin range
+        binIndex = std::max(0.0f, std::min(binIndex, (float)(numBins - 1)));
+
+        // Linear interpolation between adjacent bins
+        int idx0 = (int)binIndex;
+        int idx1 = std::min(idx0 + 1, numBins - 1);
+        float frac = binIndex - idx0;
+
+        float value = magnitudes[idx0] * (1.0f - frac) + magnitudes[idx1] * frac;
+
+        // Normalize to 0-1 range (from -80dB to 0dB)
+        float normalized = (value + 80.0f) / 80.0f;
+
+        // Apply smoothing (exponential moving average)
+        // smoothing_ = 0 means no smoothing (instant response)
+        // smoothing_ = 1 means maximum smoothing (very slow decay)
+        float alpha = 1.0f - (smoothing_ * 0.95f);  // Map 0-1 to 1-0.05
+        spectrum_data_[i] = alpha * normalized + (1.0f - alpha) * prev_spectrum_[i];
     }
+
+    // Store current spectrum for next frame's smoothing
+    prev_spectrum_ = spectrum_data_;
 }
 
 void AudioEngine::getSpectrum(float* output, int size) {
@@ -192,5 +243,11 @@ void audio_engine_set_sample_rate(AudioEngineRef engine, double sampleRate) {
 void audio_engine_set_fft_size(AudioEngineRef engine, int32_t size) {
     if (engine) {
         engine->engine.setFFTSize(size);
+    }
+}
+
+void audio_engine_set_smoothing(AudioEngineRef engine, float smoothing) {
+    if (engine) {
+        engine->engine.setSmoothing(smoothing);
     }
 }

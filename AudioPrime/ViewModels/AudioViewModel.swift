@@ -23,6 +23,24 @@ class AudioViewModel: ObservableObject {
     // Spectrum data (512 bars)
     @Published var spectrumData: [Float] = Array(repeating: 0.0, count: 512)
 
+    // Spectrum settings
+    @Published var fftSize: Int = 512 {
+        didSet {
+            if let service = audioCaptureService {
+                service.getAudioEngine().setFFTSize(Int32(fftSize))
+                print("🔧 FFT size changed to \(fftSize)")
+            }
+        }
+    }
+    @Published var smoothing: Double = 0.5 {
+        didSet {
+            if let service = audioCaptureService {
+                service.getAudioEngine().setSmoothing(Float(smoothing))
+                print("🔧 Smoothing changed to \(Int(smoothing * 100))%")
+            }
+        }
+    }
+
     // Loudness metering (ITU-R BS.1770-4)
     @Published var momentaryLoudness: Float = -23.0  // LUFS
     @Published var shortTermLoudness: Float = -23.0
@@ -56,6 +74,7 @@ class AudioViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var updateTimer: Timer?
     private var audioCaptureService: AudioCaptureService?
+    private var debugSpectrumCount = 0
 
     // MARK: - Initialization
 
@@ -71,6 +90,7 @@ class AudioViewModel: ObservableObject {
     // MARK: - Public Methods
 
     func toggleCapture() async {
+        print("🎵 toggleCapture called - isCapturing: \(isCapturing)")
         if isCapturing {
             await stopCapture()
         } else {
@@ -79,7 +99,7 @@ class AudioViewModel: ObservableObject {
     }
 
     func startCapture() async {
-        print("Starting audio capture...")
+        print("🎬 Starting audio capture...")
 
         guard let service = audioCaptureService else {
             print("❌ Audio capture service not initialized")
@@ -90,8 +110,11 @@ class AudioViewModel: ObservableObject {
             try await service.startCapture()
             isCapturing = service.isCapturing
             print("✅ Audio capture started successfully")
+            print("   └─ service.isCapturing: \(service.isCapturing)")
+            print("   └─ viewModel.isCapturing: \(isCapturing)")
         } catch {
-            print("❌ Failed to start audio capture: \(error)")
+            print("❌ Failed to start audio capture: \(error.localizedDescription)")
+            print("   └─ Error: \(error)")
             isCapturing = false
         }
     }
@@ -128,6 +151,7 @@ class AudioViewModel: ObservableObject {
 
         // Get real data from C++ audio engine
         guard let service = audioCaptureService else {
+            print("⚠️ No audioCaptureService in updateData")
             return
         }
 
@@ -135,6 +159,12 @@ class AudioViewModel: ObservableObject {
 
         // Update spectrum data
         spectrumData = engine.getSpectrum(size: 512)
+
+        // Debug: Print first few values
+        if debugSpectrumCount < 3 {
+            print("📊 Spectrum data: [\(spectrumData.prefix(10).map { String(format: "%.2f", $0) }.joined(separator: ", "))]")
+            debugSpectrumCount += 1
+        }
 
         // Update metering data
         momentaryLoudness = engine.getLUFSMomentary()

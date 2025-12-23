@@ -23,6 +23,7 @@ public:
     // Configuration
     void setSampleRate(double sampleRate);
     void setFFTSize(int size);
+    void setSmoothing(float smoothing);
 
     // Audio processing
     void process(const float* audioData, int frameCount, int channelCount);
@@ -39,14 +40,20 @@ private:
     // Configuration
     double sample_rate_;
     int fft_size_;
+    float smoothing_;  // 0.0 = no smoothing, 1.0 = maximum smoothing
 
     // FFT setup
     FFTSetup fft_setup_;
     int log2n_;
     DSPSplitComplex split_complex_;
 
+    // Audio buffer for accumulating samples
+    std::vector<float> audio_buffer_;
+    size_t buffer_write_pos_;
+
     // Analysis results
     std::vector<float> spectrum_data_;
+    std::vector<float> prev_spectrum_;  // For smoothing
     float lufs_momentary_;
     float lufs_shortterm_;
     float lufs_integrated_;

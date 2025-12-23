@@ -108,7 +108,12 @@ struct ToolbarView: View {
         HStack(spacing: 16) {
             // Audio capture controls
             Button(action: {
-                Task { await viewModel.toggleCapture() }
+                print("🔘 BUTTON CLICKED!") // Simple test - no async needed
+                Task {
+                    print("🔘 Task started")
+                    await viewModel.toggleCapture()
+                    print("🔘 Task completed")
+                }
             }) {
                 Image(systemName: viewModel.isCapturing ? "stop.circle.fill" : "play.circle.fill")
                     .font(.title2)

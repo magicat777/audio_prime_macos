@@ -35,6 +35,11 @@ class AudioEngineWrapper {
         audio_engine_set_fft_size(ref, size)
     }
 
+    func setSmoothing(_ smoothing: Float) {
+        guard let ref = engineRef else { return }
+        audio_engine_set_smoothing(ref, smoothing)
+    }
+
     // MARK: - Audio Processing
 
     func process(audioData: UnsafePointer<Float>, frameCount: Int32, channelCount: Int32) {

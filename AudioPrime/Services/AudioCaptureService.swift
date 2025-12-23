@@ -10,6 +10,7 @@ import Foundation
 import ScreenCaptureKit
 import AVFoundation
 import Combine
+import CoreAudio
 
 @MainActor
 class AudioCaptureService: NSObject, ObservableObject {
@@ -76,25 +77,35 @@ class AudioCaptureService: NSObject, ObservableObject {
 
     /// Start capturing system audio
     func startCapture() async throws {
-        guard !isCapturing else { return }
+        guard !isCapturing else {
+            print("⚠️ Already capturing, ignoring start request")
+            return
+        }
 
-        print("Starting audio capture...")
+        print("🎤 AudioCaptureService.startCapture() called")
 
         // Check permission first
+        print("📋 Checking screen recording permission...")
         let hasPermission = await checkPermission()
+        print("📋 Permission status: \(hasPermission ? "✅ Granted" : "❌ Denied")")
         guard hasPermission else {
             throw AudioCaptureError.permissionDenied
         }
 
         // Get available content
+        print("📺 Getting available content...")
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        print("📺 Found \(content.displays.count) displays, \(content.windows.count) windows")
 
         guard let display = content.displays.first else {
+            print("❌ No display found!")
             throw AudioCaptureError.noDisplayAvailable
         }
+        print("📺 Using display: \(display.displayID) - \(display.width)x\(display.height)")
 
         // Create content filter (capture entire display)
         let filter = SCContentFilter(display: display, excludingWindows: [])
+        print("📺 Filter created for display")
 
         // Configure stream
         let config = SCStreamConfiguration()
@@ -104,25 +115,35 @@ class AudioCaptureService: NSObject, ObservableObject {
         config.sampleRate = Int(sampleRate)
         config.channelCount = channelCount
         config.excludesCurrentProcessAudio = false  // Capture everything
+        print("🔊 Audio config: \(sampleRate)Hz, \(channelCount) channels")
 
-        // Disable video capture (we only want audio)
-        config.width = 1
-        config.height = 1
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        // Minimal video capture (required for ScreenCaptureKit)
+        config.width = 2
+        config.height = 2
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)  // 1 FPS minimum
         config.queueDepth = 3
+        config.showsCursor = false
+        print("📹 Video config: 2x2 @ 1fps (minimal)")
 
         // Create stream
+        print("🎬 Creating SCStream...")
         stream = SCStream(filter: filter, configuration: config, delegate: self)
 
         guard let stream = stream else {
+            print("❌ SCStream creation returned nil!")
             throw AudioCaptureError.streamCreationFailed
         }
+        print("✅ SCStream created successfully")
 
         // Add audio output handler
+        print("🔊 Adding audio output handler...")
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
+        print("✅ Audio output handler added")
 
         // Start capture
+        print("▶️ Starting capture...")
         try await stream.startCapture()
+        print("✅ Capture started!")
 
         isCapturing = true
         metricsQueue.sync {
@@ -188,70 +209,126 @@ extension AudioCaptureService: SCStreamOutput {
     nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio else { return }
 
-        // Extract audio data from sample buffer
-        guard let audioBufferList = getAudioBufferList(from: sampleBuffer) else {
-            return
-        }
-
-        // Process audio on background queue
-        processAudioBuffer(audioBufferList, sampleBuffer: sampleBuffer)
+        // Process audio directly from CMSampleBuffer
+        processAudioSampleBuffer(sampleBuffer)
     }
 
-    private nonisolated func getAudioBufferList(from sampleBuffer: CMSampleBuffer) -> AudioBufferList? {
-        var audioBufferList = AudioBufferList()
-        var blockBuffer: CMBlockBuffer?
-
-        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            sampleBuffer,
-            bufferListSizeNeededOut: nil,
-            bufferListOut: &audioBufferList,
-            bufferListSize: MemoryLayout<AudioBufferList>.size,
-            blockBufferAllocator: nil,
-            blockBufferMemoryAllocator: nil,
-            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-            blockBufferOut: &blockBuffer
-        )
-
-        guard status == noErr else {
-            print("❌ Failed to get audio buffer list: \(status)")
-            return nil
-        }
-
-        return audioBufferList
-    }
-
-    private nonisolated func processAudioBuffer(_ audioBufferList: AudioBufferList, sampleBuffer: CMSampleBuffer) {
-        // Get number of frames
+    private nonisolated func processAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         let numFrames = CMSampleBufferGetNumSamples(sampleBuffer)
-
         guard numFrames > 0 else { return }
 
-        // Access the audio buffer
-        let audioBuffer = audioBufferList.mBuffers
-
-        guard let data = audioBuffer.mData else {
-            print("❌ No audio data in buffer")
-            metricsQueue.async {
-                self._droppedFrames += 1
-            }
+        // Get format description
+        guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else {
+            print("❌ No format description")
             return
         }
 
-        // Cast to Float pointer (assuming Float32 PCM format)
-        let samples = data.assumingMemoryBound(to: Float.self)
+        let format = asbd.pointee
+        let isNonInterleaved = (format.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
 
-        // Pass to C++ audio engine (thread-safe)
-        audioEngine.process(audioData: samples, frameCount: Int32(numFrames), channelCount: Int32(channelCount))
+        // Debug: Print format description once
+        metricsQueue.async {
+            if self._frameCount == 0 {
+                print("🎧 Audio Format Details:")
+                print("   Sample Rate: \(format.mSampleRate)")
+                print("   Channels: \(format.mChannelsPerFrame)")
+                print("   Bits/Channel: \(format.mBitsPerChannel)")
+                print("   Bytes/Frame: \(format.mBytesPerFrame)")
+                print("   Format Flags: \(format.mFormatFlags)")
+                print("   Is Non-Interleaved: \(isNonInterleaved)")
+            }
+        }
+
+        // Convert CMSampleBuffer to AVAudioPCMBuffer for proper handling
+        // This is the recommended approach for ScreenCaptureKit audio
+        guard let pcmBuffer = createPCMBuffer(from: sampleBuffer) else {
+            return
+        }
+
+        // Get the float channel data
+        guard let floatChannelData = pcmBuffer.floatChannelData else {
+            print("❌ No float channel data")
+            return
+        }
+
+        let frameLength = Int(pcmBuffer.frameLength)
+        let channelCount = Int(pcmBuffer.format.channelCount)
+
+        // Debug first buffer
+        metricsQueue.async {
+            if self._frameCount == 0 {
+                print("🎵 PCM Buffer - Frames: \(frameLength), Channels: \(channelCount)")
+
+                // Print first samples from first channel
+                var samples: [Float] = []
+                for i in 0..<min(10, frameLength) {
+                    samples.append(floatChannelData[0][i])
+                }
+                print("🎵 First 10 samples (ch0): \(samples.map { String(format: "%.6f", $0) }.joined(separator: ", "))")
+
+                // Check if samples are all zeros
+                let nonZeroCount = samples.filter { $0 != 0 }.count
+                print("🎵 Non-zero samples: \(nonZeroCount)/10")
+            }
+        }
+
+        // Interleave the channels for our C++ engine
+        var interleaved = [Float](repeating: 0, count: frameLength * 2)
+        let leftChannel = floatChannelData[0]
+        let rightChannel = channelCount > 1 ? floatChannelData[1] : floatChannelData[0]
+
+        for i in 0..<frameLength {
+            interleaved[i * 2] = leftChannel[i]
+            interleaved[i * 2 + 1] = rightChannel[i]
+        }
+
+        interleaved.withUnsafeBufferPointer { ptr in
+            audioEngine.process(audioData: ptr.baseAddress!, frameCount: Int32(frameLength), channelCount: 2)
+        }
 
         // Update metrics (thread-safe via dispatch queue)
         metricsQueue.async {
-            self._frameCount += Int64(numFrames)
+            self._frameCount += Int64(frameLength)
 
             // Calculate FPS every second
             if let lastTime = self._lastFrameTime, Date().timeIntervalSince(lastTime) >= 1.0 {
                 self._lastFrameTime = Date()
             }
         }
+    }
+
+    /// Convert CMSampleBuffer to AVAudioPCMBuffer for proper handling of non-interleaved audio
+    private nonisolated func createPCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) else {
+            print("❌ No format description for PCM buffer")
+            return nil
+        }
+
+        let format = AVAudioFormat(cmAudioFormatDescription: formatDesc)
+
+        let numFrames = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(numFrames)) else {
+            print("❌ Could not create PCM buffer")
+            return nil
+        }
+
+        pcmBuffer.frameLength = AVAudioFrameCount(numFrames)
+
+        // Copy data from CMSampleBuffer to AVAudioPCMBuffer
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer,
+            at: 0,
+            frameCount: Int32(numFrames),
+            into: pcmBuffer.mutableAudioBufferList
+        )
+
+        guard status == noErr else {
+            print("❌ Failed to copy PCM data: \(status)")
+            return nil
+        }
+
+        return pcmBuffer
     }
 }
 
