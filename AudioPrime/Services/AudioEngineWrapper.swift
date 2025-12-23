@@ -40,6 +40,16 @@ class AudioEngineWrapper {
         audio_engine_set_smoothing(ref, smoothing)
     }
 
+    func setMultiResolutionFFT(_ enabled: Bool) {
+        guard let ref = engineRef else { return }
+        audio_engine_set_multi_resolution_fft(ref, enabled)
+    }
+
+    func setPerceptualWeighting(_ enabled: Bool) {
+        guard let ref = engineRef else { return }
+        audio_engine_set_perceptual_weighting(ref, enabled)
+    }
+
     // MARK: - Audio Processing
 
     func process(audioData: UnsafePointer<Float>, frameCount: Int32, channelCount: Int32) {
@@ -55,6 +65,14 @@ class AudioEngineWrapper {
         var spectrum = [Float](repeating: 0, count: size)
         audio_engine_get_spectrum(ref, &spectrum, Int32(size))
         return spectrum
+    }
+
+    func getBassDetail(size: Int = 64) -> [Float] {
+        guard let ref = engineRef else { return Array(repeating: 0, count: size) }
+
+        var bassDetail = [Float](repeating: 0, count: size)
+        audio_engine_get_bass_detail(ref, &bassDetail, Int32(size))
+        return bassDetail
     }
 
     func getLUFSMomentary() -> Float {

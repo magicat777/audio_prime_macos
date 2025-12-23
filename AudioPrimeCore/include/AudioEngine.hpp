@@ -24,12 +24,15 @@ public:
     void setSampleRate(double sampleRate);
     void setFFTSize(int size);
     void setSmoothing(float smoothing);
+    void setMultiResolutionFFT(bool enabled);
+    void setPerceptualWeighting(bool enabled);
 
     // Audio processing
     void process(const float* audioData, int frameCount, int channelCount);
 
     // Get analysis results
     void getSpectrum(float* output, int size);
+    void getBassDetail(float* output, int size);
     float getLUFSMomentary() const { return lufs_momentary_; }
     float getLUFSShortTerm() const { return lufs_shortterm_; }
     float getLUFSIntegrated() const { return lufs_integrated_; }
@@ -50,6 +53,8 @@ private:
     double sample_rate_;
     int fft_size_;
     float smoothing_;  // 0.0 = no smoothing, 1.0 = maximum smoothing
+    bool use_multi_resolution_fft_;
+    bool use_perceptual_weighting_;
 
     // FFT setup
     FFTSetup fft_setup_;
@@ -63,6 +68,16 @@ private:
     // Analysis results
     std::vector<float> spectrum_data_;
     std::vector<float> prev_spectrum_;  // For smoothing
+    std::vector<float> bass_detail_data_;  // 20-200Hz zoomed view
+    std::vector<float> raw_magnitudes_db_;  // Raw FFT magnitudes in dB (for bass detail)
+
+    // Multi-resolution FFT storage
+    std::vector<float> mrfft_low_;   // Large FFT for low frequencies
+    std::vector<float> mrfft_mid_;   // Medium FFT for mid frequencies
+    std::vector<float> mrfft_high_;  // Small FFT for high frequencies
+
+    // A-weighting lookup table
+    std::vector<float> a_weighting_;
     float lufs_momentary_;
     float lufs_shortterm_;
     float lufs_integrated_;
@@ -83,7 +98,11 @@ private:
     void initializeFFT();
     void cleanupFFT();
     void performFFT(const float* input, int inputSize);
+    void performMultiResolutionFFT(const float* input, int inputSize);
     void processStereoAnalysis(const float* audioData, int frameCount);
+    void initializeAWeighting();
+    float getAWeighting(float frequency);
+    void computeBassDetail();
 };
 
 } // namespace AudioPrime

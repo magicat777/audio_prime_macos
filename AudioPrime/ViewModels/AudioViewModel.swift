@@ -40,6 +40,25 @@ class AudioViewModel: ObservableObject {
             }
         }
     }
+    @Published var useMultiResolutionFFT: Bool = false {
+        didSet {
+            if let service = audioCaptureService {
+                service.getAudioEngine().setMultiResolutionFFT(useMultiResolutionFFT)
+                print("🔧 Multi-Resolution FFT: \(useMultiResolutionFFT ? "ON" : "OFF")")
+            }
+        }
+    }
+    @Published var usePerceptualWeighting: Bool = false {
+        didSet {
+            if let service = audioCaptureService {
+                service.getAudioEngine().setPerceptualWeighting(usePerceptualWeighting)
+                print("🔧 Perceptual Weighting: \(usePerceptualWeighting ? "ON" : "OFF")")
+            }
+        }
+    }
+
+    // Bass detail data (20-200Hz, 64 bars)
+    @Published var bassDetailData: [Float] = Array(repeating: 0.0, count: 64)
 
     // Loudness metering (ITU-R BS.1770-4)
     @Published var momentaryLoudness: Float = -23.0  // LUFS
@@ -167,6 +186,9 @@ class AudioViewModel: ObservableObject {
         // Update spectrum data
         spectrumData = engine.getSpectrum(size: 512)
 
+        // Update bass detail data (20-200Hz range)
+        bassDetailData = engine.getBassDetail(size: 64)
+
         // Debug: Print first few values
         if debugSpectrumCount < 3 {
             print("📊 Spectrum data: [\(spectrumData.prefix(10).map { String(format: "%.2f", $0) }.joined(separator: ", "))]")
@@ -193,8 +215,9 @@ class AudioViewModel: ObservableObject {
         goniometerY = goniometerData.y
 
         // Update performance metrics
-        // Latency is based on FFT size (time to accumulate enough samples)
-        latency = Double(fftSize) / sampleRate * 1000.0  // in milliseconds
+        // Latency is based on hop size (75% overlap = fftSize/4 new samples per frame)
+        let hopSize = fftSize / 4
+        latency = Double(hopSize) / sampleRate * 1000.0  // in milliseconds
 
         // Calculate actual FPS
         frameCount += 1

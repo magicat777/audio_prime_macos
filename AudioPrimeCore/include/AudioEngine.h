@@ -47,6 +47,11 @@ int32_t audio_engine_get_goniometer_point_count(AudioEngineRef engine);
 void audio_engine_set_sample_rate(AudioEngineRef engine, double sampleRate);
 void audio_engine_set_fft_size(AudioEngineRef engine, int32_t size);
 void audio_engine_set_smoothing(AudioEngineRef engine, float smoothing);
+void audio_engine_set_multi_resolution_fft(AudioEngineRef engine, bool enabled);
+void audio_engine_set_perceptual_weighting(AudioEngineRef engine, bool enabled);
+
+// Bass detail (20-200Hz zoomed view)
+void audio_engine_get_bass_detail(AudioEngineRef engine, float* output, int32_t size);
 
 #ifdef __cplusplus
 }
