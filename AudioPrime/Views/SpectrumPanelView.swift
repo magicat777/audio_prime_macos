@@ -168,10 +168,10 @@ struct SpectrumPanelView: View {
                     }
                 }
 
-                // Right column: Vertical meters panel (full height) - conditional
+                // Right column: Vertical meters panel (full height) - conditional, scalable
                 if viewModel.widgetConfig.showVerticalMeters {
                     VerticalMetersPanel(viewModel: viewModel)
-                        .frame(width: 290)  // Width for 6 bars with decimal values
+                        .frame(minWidth: 120, idealWidth: 160, maxWidth: 200)
                 }
             }
             .padding(12)
@@ -577,27 +577,33 @@ struct BassDetailPanelView: View {
     }
 }
 
-// MARK: - Vertical Meters Panel (Full Height)
+// MARK: - Vertical Meters Panel (Full Height, Scalable)
 struct VerticalMetersPanel: View {
     @ObservedObject var viewModel: AudioViewModel
 
-    // Consistent bar dimensions
-    private let barWidth: CGFloat = 38  // Width to fit "-XX.X" values
-    private let barSpacing: CGFloat = 3
-    private let sectionSpacing: CGFloat = 8
-
     var body: some View {
         GeometryReader { geometry in
-            // Calculate meter height leaving room for: section headers (18) + labels (14) + values (14) + spacing
-            let meterHeight = max(100, geometry.size.height - 70)
+            // Calculate responsive dimensions based on available space
+            let availableWidth = geometry.size.width - 16  // Padding
+            let numBars = 6  // M, S, I, TP, L, R
+            let numDividers = 2
+            let dividerSpace: CGFloat = 12
+            let sectionSpacing: CGFloat = 6
+            let barSpacing: CGFloat = 2
+
+            // Calculate bar width to fit all bars (half the previous width, minimum 16)
+            let barWidth = max(16, (availableWidth - CGFloat(numDividers) * dividerSpace - sectionSpacing * 4) / CGFloat(numBars) - barSpacing)
+
+            // Calculate meter height leaving room for labels and values
+            let meterHeight = max(80, geometry.size.height - 50)
 
             HStack(alignment: .top, spacing: sectionSpacing) {
                 // LUFS Meters (M, S, I)
-                VStack(spacing: 2) {
+                VStack(spacing: 1) {
                     Text("LUFS")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 8, weight: .bold))
                         .foregroundColor(.secondary)
-                        .frame(height: 14)
+                        .frame(height: 12)
 
                     HStack(spacing: barSpacing) {
                         UnifiedMeterBar(
@@ -633,11 +639,11 @@ struct VerticalMetersPanel: View {
                 Divider()
 
                 // True Peak
-                VStack(spacing: 2) {
+                VStack(spacing: 1) {
                     Text("TP")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 8, weight: .bold))
                         .foregroundColor(.secondary)
-                        .frame(height: 14)
+                        .frame(height: 12)
 
                     UnifiedMeterBar(
                         label: "",
@@ -648,18 +654,18 @@ struct VerticalMetersPanel: View {
                         thresholds: (-6, -3, -1),
                         targetLines: [(0, 0.8), (-1, 0.5)],
                         showClipIndicator: true,
-                        unit: "dBTP"
+                        unit: "dB"
                     )
                 }
 
                 Divider()
 
                 // VU Meters (L/R)
-                VStack(spacing: 2) {
+                VStack(spacing: 1) {
                     Text("VU")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 8, weight: .bold))
                         .foregroundColor(.secondary)
-                        .frame(height: 14)
+                        .frame(height: 12)
 
                     HStack(spacing: barSpacing) {
                         UnifiedMeterBar(
@@ -685,8 +691,8 @@ struct VerticalMetersPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         .background(Color.black.opacity(0.6))
         .cornerRadius(6)
     }
@@ -732,7 +738,7 @@ struct UnifiedMeterBar: View {
     }
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 1) {
             // The meter bar
             ZStack(alignment: .bottom) {
                 // Background
@@ -766,37 +772,38 @@ struct UnifiedMeterBar: View {
                 if showClipIndicator && value > 0 {
                     Rectangle()
                         .fill(Color.red)
-                        .frame(width: width, height: 6)
-                        .position(x: width / 2, y: 3)
+                        .frame(width: width, height: 4)
+                        .position(x: width / 2, y: 2)
                 }
             }
             .frame(width: width, height: height)
-            .cornerRadius(3)
+            .cornerRadius(2)
 
-            // Label (M, S, I, L, R, or empty for TP)
+            // Label (M, S, I, L, R, or empty for TP) - minimal font
             if !label.isEmpty {
                 Text(label)
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 7, weight: .bold))
                     .foregroundColor(.secondary)
-                    .frame(height: 12)
+                    .frame(height: 10)
             } else {
                 // Empty spacer for TP to align with other meters
-                Spacer().frame(height: 12)
+                Spacer().frame(height: 10)
             }
 
-            // Value display with 1 decimal place (e.g., -19.5)
-            Text(String(format: "%.1f", value))
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+            // Value display - minimal font, integer for narrow bars
+            Text(width < 24 ? String(format: "%.0f", value) : String(format: "%.1f", value))
+                .font(.system(size: 7, weight: .medium, design: .monospaced))
                 .foregroundColor(meterColor)
-                .frame(width: width, height: 12)
+                .frame(width: width, height: 10)
                 .lineLimit(1)
+                .minimumScaleFactor(0.5)
 
             // Optional unit label (for TP)
             if let unit = unit {
                 Text(unit)
-                    .font(.system(size: 7))
+                    .font(.system(size: 6))
                     .foregroundColor(.secondary)
-                    .frame(height: 10)
+                    .frame(height: 8)
             }
         }
     }
