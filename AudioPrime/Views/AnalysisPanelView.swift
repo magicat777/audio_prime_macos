@@ -46,58 +46,64 @@ struct StereoAnalysisView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                // Correlation Meter
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Stereo Correlation")
-                        .font(.caption.bold())
-                        .foregroundColor(.secondary)
+                // Correlation Meter - conditional
+                if viewModel.widgetConfig.showCorrelation {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Stereo Correlation")
+                            .font(.caption.bold())
+                            .foregroundColor(.secondary)
 
-                    HStack {
-                        Text("L")
-                            .font(.caption2)
-                        ProgressView(value: (Double(viewModel.stereoCorrelation) + 1.0) / 2.0)
-                            .tint(viewModel.stereoCorrelation > 0 ? .green : .red)
-                        Text("R")
-                            .font(.caption2)
+                        HStack {
+                            Text("L")
+                                .font(.caption2)
+                            ProgressView(value: (Double(viewModel.stereoCorrelation) + 1.0) / 2.0)
+                                .tint(viewModel.stereoCorrelation > 0 ? .green : .red)
+                            Text("R")
+                                .font(.caption2)
+                        }
+
+                        Text(String(format: "%.2f", viewModel.stereoCorrelation))
+                            .font(.title3.monospacedDigit())
+                            .foregroundColor(viewModel.stereoCorrelation > 0 ? .green : .orange)
                     }
-
-                    Text(String(format: "%.2f", viewModel.stereoCorrelation))
-                        .font(.title3.monospacedDigit())
-                        .foregroundColor(viewModel.stereoCorrelation > 0 ? .green : .orange)
+                    .padding()
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                    .cornerRadius(8)
                 }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                .cornerRadius(8)
 
-                // M/S Metering
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Mid/Side Levels")
-                        .font(.caption.bold())
-                        .foregroundColor(.secondary)
+                // M/S Metering - conditional
+                if viewModel.widgetConfig.showMidSide {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Mid/Side Levels")
+                            .font(.caption.bold())
+                            .foregroundColor(.secondary)
 
-                    HStack(spacing: 20) {
-                        StereoMeter(label: "Mid", value: viewModel.midLevel, color: .blue)
-                        StereoMeter(label: "Side", value: viewModel.sideLevel, color: .orange)
+                        HStack(spacing: 20) {
+                            StereoMeter(label: "Mid", value: viewModel.midLevel, color: .blue)
+                            StereoMeter(label: "Side", value: viewModel.sideLevel, color: .orange)
+                        }
+                        .frame(height: 80)
                     }
-                    .frame(height: 80)
+                    .padding()
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                    .cornerRadius(8)
                 }
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                .cornerRadius(8)
 
-                // Goniometer (Lissajous display)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Goniometer")
-                        .font(.caption.bold())
-                        .foregroundColor(.secondary)
+                // Goniometer (Lissajous display) - conditional
+                if viewModel.widgetConfig.showGoniometer {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Goniometer")
+                            .font(.caption.bold())
+                            .foregroundColor(.secondary)
 
-                    GoniometerView(xPoints: viewModel.goniometerX, yPoints: viewModel.goniometerY)
-                        .frame(minHeight: 200)
-                        .frame(maxHeight: 300)
+                        GoniometerView(xPoints: viewModel.goniometerX, yPoints: viewModel.goniometerY)
+                            .frame(minHeight: 200)
+                            .frame(maxHeight: 300)
+                    }
+                    .padding()
+                    .background(Color.black.opacity(0.8))
+                    .cornerRadius(8)
                 }
-                .padding()
-                .background(Color.black.opacity(0.8))
-                .cornerRadius(8)
 
                 Spacer()
             }

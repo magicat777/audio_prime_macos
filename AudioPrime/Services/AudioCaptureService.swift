@@ -31,6 +31,9 @@ class AudioCaptureService: NSObject, ObservableObject {
     private let channelCount: Int = 2  // Stereo
     private let bufferSize: Int = 512
 
+    // Input gain (linear multiplier, set from dB value)
+    nonisolated(unsafe) private var inputGainLinear: Float = 1.0
+
     // Performance tracking (thread-safe via DispatchQueue)
     private let metricsQueue = DispatchQueue(label: "com.audioprime.metrics")
     nonisolated(unsafe) private var _frameCount: Int64 = 0
@@ -178,6 +181,15 @@ class AudioCaptureService: NSObject, ObservableObject {
         return audioEngine
     }
 
+    /// Set input gain in dB (-24 to +12 dB range)
+    func setInputGain(_ gainDB: Float) {
+        // Convert dB to linear multiplier
+        // dB = 20 * log10(linear), so linear = 10^(dB/20)
+        let clampedGain = max(-24.0, min(12.0, gainDB))
+        inputGainLinear = pow(10.0, clampedGain / 20.0)
+        print("🔊 Input gain set to \(clampedGain) dB (linear: \(inputGainLinear))")
+    }
+
     // MARK: - Performance Metrics
 
     func getLatency() -> Double {
@@ -273,14 +285,15 @@ extension AudioCaptureService: SCStreamOutput {
             }
         }
 
-        // Interleave the channels for our C++ engine
+        // Interleave the channels for our C++ engine and apply input gain
         var interleaved = [Float](repeating: 0, count: frameLength * 2)
         let leftChannel = floatChannelData[0]
         let rightChannel = channelCount > 1 ? floatChannelData[1] : floatChannelData[0]
+        let gain = inputGainLinear  // Capture current gain value
 
         for i in 0..<frameLength {
-            interleaved[i * 2] = leftChannel[i]
-            interleaved[i * 2 + 1] = rightChannel[i]
+            interleaved[i * 2] = leftChannel[i] * gain
+            interleaved[i * 2 + 1] = rightChannel[i] * gain
         }
 
         interleaved.withUnsafeBufferPointer { ptr in

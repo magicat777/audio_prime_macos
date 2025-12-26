@@ -50,6 +50,40 @@ class AudioEngineWrapper {
         audio_engine_set_perceptual_weighting(ref, enabled)
     }
 
+    // MARK: - Stereo Spectrum Mode
+
+    func setStereoSpectrum(_ enabled: Bool) {
+        guard let ref = engineRef else { return }
+        audio_engine_set_stereo_spectrum(ref, enabled)
+    }
+
+    func getStereoSpectrum() -> Bool {
+        guard let ref = engineRef else { return false }
+        return audio_engine_get_stereo_spectrum(ref)
+    }
+
+    // MARK: - Bass FFT Configuration (dedicated high-resolution FFT for bass detail)
+
+    func setBassFFTSize(_ size: Int32) {
+        guard let ref = engineRef else { return }
+        audio_engine_set_bass_fft_size(ref, size)
+    }
+
+    func setBassSmoothing(_ smoothing: Float) {
+        guard let ref = engineRef else { return }
+        audio_engine_set_bass_smoothing(ref, smoothing)
+    }
+
+    func getBassFFTSize() -> Int32 {
+        guard let ref = engineRef else { return 4096 }
+        return audio_engine_get_bass_fft_size(ref)
+    }
+
+    func getBassSmoothing() -> Float {
+        guard let ref = engineRef else { return 0.3 }
+        return audio_engine_get_bass_smoothing(ref)
+    }
+
     // MARK: - Audio Processing
 
     func process(audioData: UnsafePointer<Float>, frameCount: Int32, channelCount: Int32) {
@@ -64,6 +98,22 @@ class AudioEngineWrapper {
 
         var spectrum = [Float](repeating: 0, count: size)
         audio_engine_get_spectrum(ref, &spectrum, Int32(size))
+        return spectrum
+    }
+
+    func getSpectrumLeft(size: Int = 512) -> [Float] {
+        guard let ref = engineRef else { return Array(repeating: 0, count: size) }
+
+        var spectrum = [Float](repeating: 0, count: size)
+        audio_engine_get_spectrum_left(ref, &spectrum, Int32(size))
+        return spectrum
+    }
+
+    func getSpectrumRight(size: Int = 512) -> [Float] {
+        guard let ref = engineRef else { return Array(repeating: 0, count: size) }
+
+        var spectrum = [Float](repeating: 0, count: size)
+        audio_engine_get_spectrum_right(ref, &spectrum, Int32(size))
         return spectrum
     }
 
@@ -141,5 +191,60 @@ class AudioEngineWrapper {
     func getGoniometerPointCount() -> Int {
         guard let ref = engineRef else { return 0 }
         return Int(audio_engine_get_goniometer_point_count(ref))
+    }
+
+    // MARK: - VU Metering
+
+    func getVULeft() -> Float {
+        guard let ref = engineRef else { return 0.0 }
+        return audio_engine_get_vu_left(ref)
+    }
+
+    func getVURight() -> Float {
+        guard let ref = engineRef else { return 0.0 }
+        return audio_engine_get_vu_right(ref)
+    }
+
+    func getPeakLeft() -> Float {
+        guard let ref = engineRef else { return -100.0 }
+        return audio_engine_get_peak_left(ref)
+    }
+
+    func getPeakRight() -> Float {
+        guard let ref = engineRef else { return -100.0 }
+        return audio_engine_get_peak_right(ref)
+    }
+
+    func getPeakHoldLeft() -> Float {
+        guard let ref = engineRef else { return -100.0 }
+        return audio_engine_get_peak_hold_left(ref)
+    }
+
+    func getPeakHoldRight() -> Float {
+        guard let ref = engineRef else { return -100.0 }
+        return audio_engine_get_peak_hold_right(ref)
+    }
+
+    // MARK: - Oscilloscope Waveform
+
+    func getWaveformLeft(size: Int = 1024) -> [Float] {
+        guard let ref = engineRef else { return Array(repeating: 0, count: size) }
+
+        var waveform = [Float](repeating: 0, count: size)
+        audio_engine_get_waveform_left(ref, &waveform, Int32(size))
+        return waveform
+    }
+
+    func getWaveformRight(size: Int = 1024) -> [Float] {
+        guard let ref = engineRef else { return Array(repeating: 0, count: size) }
+
+        var waveform = [Float](repeating: 0, count: size)
+        audio_engine_get_waveform_right(ref, &waveform, Int32(size))
+        return waveform
+    }
+
+    func getWaveformSize() -> Int {
+        guard let ref = engineRef else { return 1024 }
+        return Int(audio_engine_get_waveform_size(ref))
     }
 }

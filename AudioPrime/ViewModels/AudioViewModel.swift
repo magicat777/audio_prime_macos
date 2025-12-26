@@ -9,19 +9,115 @@
 import SwiftUI
 import Combine
 
+// MARK: - Peak Hold Mode
+
+enum PeakHoldMode: String, CaseIterable {
+    case off = "Off"
+    case fast = "Fast"
+    case medium = "Medium"
+    case slow = "Slow"
+
+    /// Decay rate per frame at 60fps
+    var decayRate: Float {
+        switch self {
+        case .off: return 0
+        case .fast: return 0.008    // ~0.48/sec - drops quickly
+        case .medium: return 0.003  // ~0.18/sec - moderate decay
+        case .slow: return 0.001    // ~0.06/sec - very slow decay
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .off: return "chart.line.uptrend.xyaxis"
+        case .fast: return "hare.fill"
+        case .medium: return "figure.walk"
+        case .slow: return "tortoise.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .off: return .gray
+        case .fast: return .orange
+        case .medium: return .cyan
+        case .slow: return .green
+        }
+    }
+
+    var next: PeakHoldMode {
+        switch self {
+        case .off: return .fast
+        case .fast: return .medium
+        case .medium: return .slow
+        case .slow: return .off
+        }
+    }
+}
+
 @MainActor
 class AudioViewModel: ObservableObject {
     // MARK: - Published Properties
 
+    // Note: Real-time data uses nonisolated(unsafe) to avoid triggering
+    // individual @Published updates. We manually call objectWillChange.send()
+    // once per frame to batch all updates together.
+
     // Audio capture state
     @Published var isCapturing = false
 
-    // Performance metrics
+    // Performance metrics (updated once per second, can stay @Published)
     @Published var currentFPS: Int = 60
-    @Published var latency: Double = 0.0  // milliseconds
+
+    // Real-time data - use nonisolated(unsafe) to avoid per-property updates
+    // These are updated every frame and batched with manual objectWillChange
+    nonisolated(unsafe) var latency: Double = 0.0  // milliseconds
 
     // Spectrum data (512 bars)
-    @Published var spectrumData: [Float] = Array(repeating: 0.0, count: 512)
+    nonisolated(unsafe) var spectrumData: [Float] = Array(repeating: 0.0, count: 512)
+
+    // Stereo spectrum data (L/R channels)
+    @Published var showStereoSpectrum: Bool = false {
+        didSet {
+            if let service = audioCaptureService {
+                service.getAudioEngine().setStereoSpectrum(showStereoSpectrum)
+                print("🔧 Stereo Spectrum: \(showStereoSpectrum ? "ON" : "OFF")")
+            }
+        }
+    }
+    nonisolated(unsafe) var spectrumDataLeft: [Float] = Array(repeating: 0.0, count: 512)
+    nonisolated(unsafe) var spectrumDataRight: [Float] = Array(repeating: 0.0, count: 512)
+
+    // Peak hold for spectrum visualizer
+    @Published var peakHoldMode: PeakHoldMode = .medium
+    nonisolated(unsafe) var spectrumPeakHold: [Float] = Array(repeating: 0.0, count: 512)
+    nonisolated(unsafe) var spectrumPeakHoldLeft: [Float] = Array(repeating: 0.0, count: 512)
+    nonisolated(unsafe) var spectrumPeakHoldRight: [Float] = Array(repeating: 0.0, count: 512)
+    nonisolated(unsafe) var bassPeakHold: [Float] = Array(repeating: 0.0, count: 64)
+
+    var showPeakHold: Bool { peakHoldMode != .off }
+
+    // Cycle through peak hold modes
+    func cyclePeakHoldMode() {
+        peakHoldMode = peakHoldMode.next
+        // Reset peak hold when turning off or changing modes
+        if peakHoldMode == .off {
+            spectrumPeakHold = Array(repeating: 0.0, count: 512)
+            spectrumPeakHoldLeft = Array(repeating: 0.0, count: 512)
+            spectrumPeakHoldRight = Array(repeating: 0.0, count: 512)
+            bassPeakHold = Array(repeating: 0.0, count: 64)
+        }
+    }
+
+    // Input gain (dB) - adjusts incoming signal level
+    @Published var inputGain: Float = 0.0 {  // -24 to +12 dB
+        didSet {
+            if let service = audioCaptureService {
+                service.setInputGain(inputGain)
+                print("🔧 Input gain changed to \(inputGain) dB")
+            }
+        }
+    }
 
     // Spectrum settings
     @Published var fftSize: Int = 512 {
@@ -58,37 +154,69 @@ class AudioViewModel: ObservableObject {
     }
 
     // Bass detail data (20-200Hz, 64 bars)
-    @Published var bassDetailData: [Float] = Array(repeating: 0.0, count: 64)
+    nonisolated(unsafe) var bassDetailData: [Float] = Array(repeating: 0.0, count: 64)
 
-    // Loudness metering (ITU-R BS.1770-4)
-    @Published var momentaryLoudness: Float = -23.0  // LUFS
-    @Published var shortTermLoudness: Float = -23.0
-    @Published var integratedLoudness: Float = -23.0
-    @Published var truePeak: Float = 0.0  // dBTP
+    // Bass FFT settings (independent from main spectrum)
+    @Published var bassFFTSize: Int = 4096 {  // 2048, 4096, 8192
+        didSet {
+            if let service = audioCaptureService {
+                service.getAudioEngine().setBassFFTSize(Int32(bassFFTSize))
+                print("🔧 Bass FFT size changed to \(bassFFTSize) (~\(String(format: "%.1f", 48000.0 / Double(bassFFTSize)))Hz resolution)")
+            }
+        }
+    }
 
-    // Beat detection
-    @Published var currentBPM: Float = 0.0
-    @Published var beatDetected = false
+    // Loudness metering (ITU-R BS.1770-4) - real-time, batched updates
+    nonisolated(unsafe) var momentaryLoudness: Float = -23.0  // LUFS
+    nonisolated(unsafe) var shortTermLoudness: Float = -23.0
+    nonisolated(unsafe) var integratedLoudness: Float = -23.0
+    nonisolated(unsafe) var truePeak: Float = 0.0  // dBTP
 
-    // Stereo analysis
-    @Published var stereoCorrelation: Float = 1.0  // -1 to +1
-    @Published var stereoWidth: Float = 0.0
-    @Published var leftLevel: Float = 0.0
-    @Published var rightLevel: Float = 0.0
-    @Published var midLevel: Float = 0.0
-    @Published var sideLevel: Float = 0.0
-    @Published var goniometerX: [Float] = Array(repeating: 0.0, count: 512)
-    @Published var goniometerY: [Float] = Array(repeating: 0.0, count: 512)
+    // Beat detection - real-time
+    nonisolated(unsafe) var currentBPM: Float = 0.0
+    nonisolated(unsafe) var beatDetected = false
 
-    // Voice analysis
-    @Published var voiceDetected = false
-    @Published var fundamentalFrequency: Float = 0.0  // Hz
-    @Published var formants: [Float] = [0, 0, 0, 0]  // F1, F2, F3, F4
-    @Published var vibratoRate: Float = 0.0  // Hz
+    // Stereo analysis - real-time
+    nonisolated(unsafe) var stereoCorrelation: Float = 1.0  // -1 to +1
+    nonisolated(unsafe) var stereoWidth: Float = 0.0
+    nonisolated(unsafe) var leftLevel: Float = 0.0
+    nonisolated(unsafe) var rightLevel: Float = 0.0
+    nonisolated(unsafe) var midLevel: Float = 0.0
+    nonisolated(unsafe) var sideLevel: Float = 0.0
+    nonisolated(unsafe) var goniometerX: [Float] = Array(repeating: 0.0, count: 512)
+    nonisolated(unsafe) var goniometerY: [Float] = Array(repeating: 0.0, count: 512)
+
+    // Oscilloscope waveform data (time-domain) - real-time
+    nonisolated(unsafe) var waveformLeft: [Float] = Array(repeating: 0.0, count: 1024)
+    nonisolated(unsafe) var waveformRight: [Float] = Array(repeating: 0.0, count: 1024)
+
+    // VU metering - real-time
+    nonisolated(unsafe) var vuLeft: Float = 0.0
+    nonisolated(unsafe) var vuRight: Float = 0.0
+    nonisolated(unsafe) var peakLeft: Float = -100.0
+    nonisolated(unsafe) var peakRight: Float = -100.0
+    nonisolated(unsafe) var peakHoldLeft: Float = -100.0
+    nonisolated(unsafe) var peakHoldRight: Float = -100.0
+
+    // Voice analysis - real-time
+    nonisolated(unsafe) var voiceDetected = false
+    nonisolated(unsafe) var fundamentalFrequency: Float = 0.0  // Hz
+    nonisolated(unsafe) var formants: [Float] = [0, 0, 0, 0]  // F1, F2, F3, F4
+    nonisolated(unsafe) var vibratoRate: Float = 0.0  // Hz
 
     // Spotify integration
     @Published var spotifyConnected = false
     @Published var currentTrack: SpotifyTrack?
+
+    // MARK: - Widget Visibility Configuration
+    @Published var widgetConfig = WidgetConfiguration()
+    @Published var widgetPreset: WidgetPreset = .full {
+        didSet {
+            if widgetPreset != .custom {
+                widgetConfig = widgetPreset.configuration
+            }
+        }
+    }
 
     // MARK: - Private Properties
 
@@ -186,8 +314,55 @@ class AudioViewModel: ObservableObject {
         // Update spectrum data
         spectrumData = engine.getSpectrum(size: 512)
 
+        // Update stereo spectrum data (if enabled)
+        if showStereoSpectrum {
+            spectrumDataLeft = engine.getSpectrumLeft(size: 512)
+            spectrumDataRight = engine.getSpectrumRight(size: 512)
+        }
+
         // Update bass detail data (20-200Hz range)
         bassDetailData = engine.getBassDetail(size: 64)
+
+        // Update peak hold for spectrum (using mode-specific decay rate)
+        if showPeakHold {
+            let decay = peakHoldMode.decayRate
+
+            if showStereoSpectrum {
+                // Stereo mode: track L/R peak hold separately
+                for i in 0..<min(spectrumDataLeft.count, spectrumPeakHoldLeft.count) {
+                    if spectrumDataLeft[i] > spectrumPeakHoldLeft[i] {
+                        spectrumPeakHoldLeft[i] = spectrumDataLeft[i]
+                    } else {
+                        spectrumPeakHoldLeft[i] = max(0, spectrumPeakHoldLeft[i] - decay)
+                    }
+                }
+                for i in 0..<min(spectrumDataRight.count, spectrumPeakHoldRight.count) {
+                    if spectrumDataRight[i] > spectrumPeakHoldRight[i] {
+                        spectrumPeakHoldRight[i] = spectrumDataRight[i]
+                    } else {
+                        spectrumPeakHoldRight[i] = max(0, spectrumPeakHoldRight[i] - decay)
+                    }
+                }
+            } else {
+                // Mono mode: track single peak hold
+                for i in 0..<min(spectrumData.count, spectrumPeakHold.count) {
+                    if spectrumData[i] > spectrumPeakHold[i] {
+                        spectrumPeakHold[i] = spectrumData[i]
+                    } else {
+                        spectrumPeakHold[i] = max(0, spectrumPeakHold[i] - decay)
+                    }
+                }
+            }
+
+            // Bass peak hold (always mono)
+            for i in 0..<min(bassDetailData.count, bassPeakHold.count) {
+                if bassDetailData[i] > bassPeakHold[i] {
+                    bassPeakHold[i] = bassDetailData[i]
+                } else {
+                    bassPeakHold[i] = max(0, bassPeakHold[i] - decay)
+                }
+            }
+        }
 
         // Debug: Print first few values
         if debugSpectrumCount < 3 {
@@ -214,6 +389,18 @@ class AudioViewModel: ObservableObject {
         goniometerX = goniometerData.x
         goniometerY = goniometerData.y
 
+        // Update oscilloscope waveform data
+        waveformLeft = engine.getWaveformLeft(size: 1024)
+        waveformRight = engine.getWaveformRight(size: 1024)
+
+        // Update VU meters
+        vuLeft = engine.getVULeft()
+        vuRight = engine.getVURight()
+        peakLeft = engine.getPeakLeft()
+        peakRight = engine.getPeakRight()
+        peakHoldLeft = engine.getPeakHoldLeft()
+        peakHoldRight = engine.getPeakHoldRight()
+
         // Update performance metrics
         // Latency is based on hop size (75% overlap = fftSize/4 new samples per frame)
         let hopSize = fftSize / 4
@@ -228,6 +415,10 @@ class AudioViewModel: ObservableObject {
             frameCount = 0
             lastFPSUpdate = now
         }
+
+        // Trigger ONE SwiftUI update for all the real-time data changes
+        // This replaces ~25 individual @Published updates with a single notification
+        objectWillChange.send()
     }
 
     // MARK: - Test Data (for UI development)
@@ -256,8 +447,10 @@ class AudioViewModel: ObservableObject {
         }
 
         // Update metrics
-        currentFPS = Int.random(in: 58...60)
         latency = Double.random(in: 2.5...4.5)
+
+        // Trigger ONE SwiftUI update
+        objectWillChange.send()
     }
 
     nonisolated deinit {

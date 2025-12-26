@@ -8,13 +8,23 @@
 
 import SwiftUI
 
+// Shared ViewModel for both windows
+@MainActor
+class AppState: ObservableObject {
+    static let shared = AppState()
+    let audioViewModel = AudioViewModel()
+}
+
 @main
 struct AudioPrimeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.openWindow) private var openWindow
+    @StateObject private var appState = AppState.shared
 
     var body: some Scene {
+        // Main visualization window
         WindowGroup {
-            MainWindowView()
+            MainWindowView(viewModel: appState.audioViewModel)
                 .frame(minWidth: 1200, minHeight: 800)
         }
         .windowStyle(.hiddenTitleBar)
@@ -33,7 +43,23 @@ struct AudioPrimeApp: App {
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             }
+
+            // View menu - Controls window
+            CommandGroup(after: .toolbar) {
+                Button("Show FFT Controls") {
+                    openWindow(id: "controls")
+                }
+                .keyboardShortcut(",", modifiers: [.command])
+            }
         }
+
+        // Separate controls window (isolated from 60fps updates)
+        Window("FFT Controls", id: "controls") {
+            ControlsWindowView(viewModel: appState.audioViewModel)
+        }
+        .windowStyle(.titleBar)
+        .windowResizability(.contentSize)
+        .defaultPosition(.topTrailing)
     }
 }
 
