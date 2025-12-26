@@ -55,6 +55,32 @@ enum PeakHoldMode: String, CaseIterable {
     }
 }
 
+// MARK: - Goniometer Display Mode
+
+enum GoniometerDisplayMode: String, CaseIterable {
+    case goniometer = "GONIO"
+    case vectorscope = "VECT"
+    case polar = "POLAR"
+
+    var label: String { rawValue }
+
+    var color: Color {
+        switch self {
+        case .goniometer: return .purple
+        case .vectorscope: return .green
+        case .polar: return .orange
+        }
+    }
+
+    var next: GoniometerDisplayMode {
+        switch self {
+        case .goniometer: return .vectorscope
+        case .vectorscope: return .polar
+        case .polar: return .goniometer
+        }
+    }
+}
+
 @MainActor
 class AudioViewModel: ObservableObject {
     // MARK: - Published Properties
@@ -185,6 +211,13 @@ class AudioViewModel: ObservableObject {
     nonisolated(unsafe) var sideLevel: Float = 0.0
     nonisolated(unsafe) var goniometerX: [Float] = Array(repeating: 0.0, count: 512)
     nonisolated(unsafe) var goniometerY: [Float] = Array(repeating: 0.0, count: 512)
+
+    // Goniometer display mode (Goniometer/Vectorscope/Polar)
+    @Published var goniometerDisplayMode: GoniometerDisplayMode = .goniometer
+
+    func cycleGoniometerMode() {
+        goniometerDisplayMode = goniometerDisplayMode.next
+    }
 
     // Oscilloscope waveform data (time-domain) - real-time
     nonisolated(unsafe) var waveformLeft: [Float] = Array(repeating: 0.0, count: 1024)

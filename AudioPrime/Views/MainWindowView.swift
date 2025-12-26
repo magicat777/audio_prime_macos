@@ -430,15 +430,27 @@ struct ToolbarView: View {
                 Section("Stereo Analysis") {
                     Toggle("Goniometer", isOn: Binding(
                         get: { viewModel.widgetConfig.showGoniometer },
-                        set: { viewModel.widgetConfig.showGoniometer = $0; viewModel.widgetPreset = .custom }
+                        set: { newValue in
+                            viewModel.widgetConfig.showGoniometer = newValue
+                            if newValue { viewModel.widgetConfig.showAnalysis = true }
+                            viewModel.widgetPreset = .custom
+                        }
                     ))
                     Toggle("Correlation Meter", isOn: Binding(
                         get: { viewModel.widgetConfig.showCorrelation },
-                        set: { viewModel.widgetConfig.showCorrelation = $0; viewModel.widgetPreset = .custom }
+                        set: { newValue in
+                            viewModel.widgetConfig.showCorrelation = newValue
+                            if newValue { viewModel.widgetConfig.showAnalysis = true }
+                            viewModel.widgetPreset = .custom
+                        }
                     ))
                     Toggle("Mid/Side Display", isOn: Binding(
                         get: { viewModel.widgetConfig.showMidSide },
-                        set: { viewModel.widgetConfig.showMidSide = $0; viewModel.widgetPreset = .custom }
+                        set: { newValue in
+                            viewModel.widgetConfig.showMidSide = newValue
+                            if newValue { viewModel.widgetConfig.showAnalysis = true }
+                            viewModel.widgetPreset = .custom
+                        }
                     ))
                 }
 
