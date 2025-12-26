@@ -359,7 +359,7 @@ struct ToolbarView: View {
                 }
             }
             .pickerStyle(.menu)
-            .frame(width: 120)
+            .frame(width: 150)
             .help("Choose widget layout preset")
 
             Spacer()
@@ -368,6 +368,64 @@ struct ToolbarView: View {
             if viewModel.spotifyConnected {
                 SpotifyNowPlayingBadge(viewModel: viewModel)
             }
+
+            // Quick widget toggles
+            HStack(spacing: 4) {
+                // Spectrum Panel toggle
+                Toggle(isOn: Binding(
+                    get: { viewModel.widgetConfig.showSpectrum },
+                    set: { newValue in
+                        viewModel.widgetConfig.showSpectrum = newValue
+                        viewModel.widgetPreset = .custom
+                    }
+                )) {
+                    Image(systemName: "waveform")
+                }
+                .toggleStyle(.button)
+                .help("Toggle Spectrum Panel")
+
+                // Visualization Panel toggle
+                Toggle(isOn: Binding(
+                    get: { viewModel.widgetConfig.showVisualization },
+                    set: { newValue in
+                        viewModel.widgetConfig.showVisualization = newValue
+                        viewModel.widgetPreset = .custom
+                    }
+                )) {
+                    Image(systemName: "cube.transparent")
+                }
+                .toggleStyle(.button)
+                .help("Toggle 3D Visualization")
+
+                // Analysis Panel toggle
+                Toggle(isOn: Binding(
+                    get: { viewModel.widgetConfig.showAnalysis },
+                    set: { newValue in
+                        viewModel.widgetConfig.showAnalysis = newValue
+                        viewModel.widgetPreset = .custom
+                    }
+                )) {
+                    Image(systemName: "chart.xyaxis.line")
+                }
+                .toggleStyle(.button)
+                .help("Toggle Analysis Panel")
+
+                // Meters toggle
+                Toggle(isOn: Binding(
+                    get: { viewModel.widgetConfig.showVerticalMeters },
+                    set: { newValue in
+                        viewModel.widgetConfig.showVerticalMeters = newValue
+                        viewModel.widgetPreset = .custom
+                    }
+                )) {
+                    Image(systemName: "chart.bar.fill")
+                }
+                .toggleStyle(.button)
+                .help("Toggle Meters")
+            }
+
+            Divider()
+                .frame(height: 20)
 
             // FFT Controls window button
             Button(action: {
@@ -389,7 +447,7 @@ struct ToolbarView: View {
                 Image(systemName: "ladybug.fill")
             }
             .toggleStyle(.button)
-            .help("Toggle debug panel")
+            .help("Toggle Debug Panel")
 
             // Panel visibility menu
             Menu {
