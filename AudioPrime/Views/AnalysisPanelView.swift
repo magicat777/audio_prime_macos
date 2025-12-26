@@ -50,8 +50,10 @@ struct StereoAnalysisView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                // Frequency Bands Panel
-                FrequencyBandsPanel(viewModel: viewModel)
+                // Frequency Bands Panel - conditional
+                if viewModel.widgetConfig.showFrequencyBands {
+                    FrequencyBandsPanel(viewModel: viewModel)
+                }
 
                 // Comprehensive Stereo Correlation Panel - conditional
                 if viewModel.widgetConfig.showCorrelation || viewModel.widgetConfig.showMidSide {

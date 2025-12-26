@@ -49,6 +49,9 @@ struct WidgetConfiguration: Equatable {
     /// BPM/Tempo display
     var showBPM: Bool = true
 
+    /// Frequency bands analyzer
+    var showFrequencyBands: Bool = true
+
     // MARK: - Stereo Analysis
 
     /// Goniometer (stereo phase scope)

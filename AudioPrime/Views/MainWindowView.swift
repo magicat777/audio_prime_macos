@@ -539,6 +539,14 @@ struct ToolbarView: View {
                             viewModel.widgetPreset = .custom
                         }
                     ))
+                    Toggle("Frequency Bands", isOn: Binding(
+                        get: { viewModel.widgetConfig.showFrequencyBands },
+                        set: { newValue in
+                            viewModel.widgetConfig.showFrequencyBands = newValue
+                            if newValue { viewModel.widgetConfig.showAnalysis = true }
+                            viewModel.widgetPreset = .custom
+                        }
+                    ))
                 }
 
                 Divider()
