@@ -419,9 +419,38 @@ struct ToolbarView: View {
                         get: { viewModel.widgetConfig.showBassDetail },
                         set: { viewModel.widgetConfig.showBassDetail = $0; viewModel.widgetPreset = .custom }
                     ))
-                    Toggle("Vertical Meters", isOn: Binding(
+                    Toggle("Meters Panel", isOn: Binding(
                         get: { viewModel.widgetConfig.showVerticalMeters },
                         set: { viewModel.widgetConfig.showVerticalMeters = $0; viewModel.widgetPreset = .custom }
+                    ))
+                }
+
+                Divider()
+
+                Section("Metering Widgets") {
+                    Toggle("LUFS Meters (M/S/I)", isOn: Binding(
+                        get: { viewModel.widgetConfig.showLUFSMeters },
+                        set: { newValue in
+                            viewModel.widgetConfig.showLUFSMeters = newValue
+                            if newValue { viewModel.widgetConfig.showVerticalMeters = true }
+                            viewModel.widgetPreset = .custom
+                        }
+                    ))
+                    Toggle("True Peak", isOn: Binding(
+                        get: { viewModel.widgetConfig.showTruePeak },
+                        set: { newValue in
+                            viewModel.widgetConfig.showTruePeak = newValue
+                            if newValue { viewModel.widgetConfig.showVerticalMeters = true }
+                            viewModel.widgetPreset = .custom
+                        }
+                    ))
+                    Toggle("VU Meters (L/R)", isOn: Binding(
+                        get: { viewModel.widgetConfig.showVUMeters },
+                        set: { newValue in
+                            viewModel.widgetConfig.showVUMeters = newValue
+                            if newValue { viewModel.widgetConfig.showVerticalMeters = true }
+                            viewModel.widgetPreset = .custom
+                        }
                     ))
                 }
 

@@ -577,128 +577,188 @@ struct BassDetailPanelView: View {
     }
 }
 
-// MARK: - Vertical Meters Panel (Full Height, Scalable)
+// MARK: - Meter Constants (shared across all meter widgets)
+private let meterBarWidth: CGFloat = 22
+private let meterBarSpacing: CGFloat = 2
+private let meterPadding: CGFloat = 6
+
+// MARK: - LUFS Meter Widget
+struct LUFSMeterWidget: View {
+    @ObservedObject var viewModel: AudioViewModel
+    let barWidth: CGFloat
+    let meterHeight: CGFloat
+
+    init(viewModel: AudioViewModel, barWidth: CGFloat = meterBarWidth, meterHeight: CGFloat = 200) {
+        self.viewModel = viewModel
+        self.barWidth = barWidth
+        self.meterHeight = meterHeight
+    }
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Text("LUFS")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(height: 12)
+
+            HStack(spacing: meterBarSpacing) {
+                UnifiedMeterBar(
+                    label: "M",
+                    value: viewModel.momentaryLoudness,
+                    minDB: -60, maxDB: 0,
+                    height: meterHeight,
+                    width: barWidth,
+                    thresholds: (-18, -14, -9),
+                    targetLines: [(-14, 0.6), (-23, 0.3)],
+                    unit: "dB"
+                )
+                UnifiedMeterBar(
+                    label: "S",
+                    value: viewModel.shortTermLoudness,
+                    minDB: -60, maxDB: 0,
+                    height: meterHeight,
+                    width: barWidth,
+                    thresholds: (-18, -14, -9),
+                    targetLines: [(-14, 0.6), (-23, 0.3)],
+                    unit: "dB"
+                )
+                UnifiedMeterBar(
+                    label: "I",
+                    value: viewModel.integratedLoudness,
+                    minDB: -60, maxDB: 0,
+                    height: meterHeight,
+                    width: barWidth,
+                    thresholds: (-18, -14, -9),
+                    targetLines: [(-14, 0.6), (-23, 0.3)],
+                    unit: "dB"
+                )
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, meterPadding)
+        .padding(.vertical, 4)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(6)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
+// MARK: - True Peak Meter Widget
+struct TruePeakWidget: View {
+    @ObservedObject var viewModel: AudioViewModel
+    let barWidth: CGFloat
+    let meterHeight: CGFloat
+
+    init(viewModel: AudioViewModel, barWidth: CGFloat = meterBarWidth, meterHeight: CGFloat = 200) {
+        self.viewModel = viewModel
+        self.barWidth = barWidth
+        self.meterHeight = meterHeight
+    }
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Text("TP")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(height: 12)
+
+            UnifiedMeterBar(
+                label: "",
+                value: viewModel.truePeak,
+                minDB: -60, maxDB: 3,
+                height: meterHeight,
+                width: barWidth,
+                thresholds: (-6, -3, -1),
+                targetLines: [(0, 0.8), (-1, 0.5)],
+                showClipIndicator: true,
+                unit: "dBTP"
+            )
+        }
+        .padding(.horizontal, meterPadding)
+        .padding(.vertical, 4)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(6)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
+// MARK: - VU Meter Widget
+struct VUMeterWidget: View {
+    @ObservedObject var viewModel: AudioViewModel
+    let barWidth: CGFloat
+    let meterHeight: CGFloat
+
+    init(viewModel: AudioViewModel, barWidth: CGFloat = meterBarWidth, meterHeight: CGFloat = 200) {
+        self.viewModel = viewModel
+        self.barWidth = barWidth
+        self.meterHeight = meterHeight
+    }
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Text("VU")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(.secondary)
+                .frame(height: 12)
+
+            HStack(spacing: meterBarSpacing) {
+                UnifiedMeterBar(
+                    label: "L",
+                    value: vuToDB(viewModel.vuLeft),
+                    minDB: -60, maxDB: 0,
+                    height: meterHeight,
+                    width: barWidth,
+                    thresholds: (-12, -6, -3),
+                    peakHoldValue: vuToDB(viewModel.peakHoldLeft),
+                    unit: "dB"
+                )
+                UnifiedMeterBar(
+                    label: "R",
+                    value: vuToDB(viewModel.vuRight),
+                    minDB: -60, maxDB: 0,
+                    height: meterHeight,
+                    width: barWidth,
+                    thresholds: (-12, -6, -3),
+                    peakHoldValue: vuToDB(viewModel.peakHoldRight),
+                    unit: "dB"
+                )
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, meterPadding)
+        .padding(.vertical, 4)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(6)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func vuToDB(_ level: Float) -> Float {
+        guard level > 0.00001 else { return -60.0 }  // Clamp very small values
+        return max(-60.0, 20.0 * log10(level))       // Clamp to -60 minimum
+    }
+}
+
+// MARK: - Vertical Meters Panel (Combined container)
 struct VerticalMetersPanel: View {
     @ObservedObject var viewModel: AudioViewModel
 
     var body: some View {
         GeometryReader { geometry in
-            // Calculate responsive dimensions based on available space
-            let availableWidth = geometry.size.width - 16  // Padding
-            let numBars = 6  // M, S, I, TP, L, R
-            let numDividers = 2
-            let dividerSpace: CGFloat = 12
-            let sectionSpacing: CGFloat = 6
-            let barSpacing: CGFloat = 2
-
-            // Calculate bar width to fit all bars (half the previous width, minimum 16)
-            let barWidth = max(16, (availableWidth - CGFloat(numDividers) * dividerSpace - sectionSpacing * 4) / CGFloat(numBars) - barSpacing)
-
-            // Calculate meter height leaving room for labels and values
             let meterHeight = max(80, geometry.size.height - 50)
 
-            HStack(alignment: .top, spacing: sectionSpacing) {
-                // LUFS Meters (M, S, I)
-                VStack(spacing: 1) {
-                    Text("LUFS")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.secondary)
-                        .frame(height: 12)
-
-                    HStack(spacing: barSpacing) {
-                        UnifiedMeterBar(
-                            label: "M",
-                            value: viewModel.momentaryLoudness,
-                            minDB: -60, maxDB: 0,
-                            height: meterHeight,
-                            width: barWidth,
-                            thresholds: (-18, -14, -9),
-                            targetLines: [(-14, 0.6), (-23, 0.3)]
-                        )
-                        UnifiedMeterBar(
-                            label: "S",
-                            value: viewModel.shortTermLoudness,
-                            minDB: -60, maxDB: 0,
-                            height: meterHeight,
-                            width: barWidth,
-                            thresholds: (-18, -14, -9),
-                            targetLines: [(-14, 0.6), (-23, 0.3)]
-                        )
-                        UnifiedMeterBar(
-                            label: "I",
-                            value: viewModel.integratedLoudness,
-                            minDB: -60, maxDB: 0,
-                            height: meterHeight,
-                            width: barWidth,
-                            thresholds: (-18, -14, -9),
-                            targetLines: [(-14, 0.6), (-23, 0.3)]
-                        )
-                    }
+            HStack(spacing: 4) {
+                if viewModel.widgetConfig.showLUFSMeters {
+                    LUFSMeterWidget(viewModel: viewModel, barWidth: meterBarWidth, meterHeight: meterHeight)
                 }
-
-                Divider()
-
-                // True Peak
-                VStack(spacing: 1) {
-                    Text("TP")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.secondary)
-                        .frame(height: 12)
-
-                    UnifiedMeterBar(
-                        label: "",
-                        value: viewModel.truePeak,
-                        minDB: -60, maxDB: 3,
-                        height: meterHeight,
-                        width: barWidth,
-                        thresholds: (-6, -3, -1),
-                        targetLines: [(0, 0.8), (-1, 0.5)],
-                        showClipIndicator: true,
-                        unit: "dB"
-                    )
+                if viewModel.widgetConfig.showTruePeak {
+                    TruePeakWidget(viewModel: viewModel, barWidth: meterBarWidth, meterHeight: meterHeight)
                 }
-
-                Divider()
-
-                // VU Meters (L/R)
-                VStack(spacing: 1) {
-                    Text("VU")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.secondary)
-                        .frame(height: 12)
-
-                    HStack(spacing: barSpacing) {
-                        UnifiedMeterBar(
-                            label: "L",
-                            value: vuToDB(viewModel.vuLeft),
-                            minDB: -60, maxDB: 0,
-                            height: meterHeight,
-                            width: barWidth,
-                            thresholds: (-12, -6, -3),
-                            peakHoldValue: vuToDB(viewModel.peakHoldLeft)
-                        )
-                        UnifiedMeterBar(
-                            label: "R",
-                            value: vuToDB(viewModel.vuRight),
-                            minDB: -60, maxDB: 0,
-                            height: meterHeight,
-                            width: barWidth,
-                            thresholds: (-12, -6, -3),
-                            peakHoldValue: vuToDB(viewModel.peakHoldRight)
-                        )
-                    }
+                if viewModel.widgetConfig.showVUMeters {
+                    VUMeterWidget(viewModel: viewModel, barWidth: meterBarWidth, meterHeight: meterHeight)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxHeight: .infinity)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Color.black.opacity(0.6))
-        .cornerRadius(6)
-    }
-
-    private func vuToDB(_ level: Float) -> Float {
-        level > 0 ? 20.0 * log10(level) : -60.0
     }
 }
 
@@ -779,16 +839,11 @@ struct UnifiedMeterBar: View {
             .frame(width: width, height: height)
             .cornerRadius(2)
 
-            // Label (M, S, I, L, R, or empty for TP) - minimal font
-            if !label.isEmpty {
-                Text(label)
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundColor(.secondary)
-                    .frame(height: 10)
-            } else {
-                // Empty spacer for TP to align with other meters
-                Spacer().frame(height: 10)
-            }
+            // Label (M, S, I, L, R) - always reserve space for alignment
+            Text(label.isEmpty ? " " : label)
+                .font(.system(size: 7, weight: .bold))
+                .foregroundColor(label.isEmpty ? .clear : .secondary)
+                .frame(height: 10)
 
             // Value display - minimal font, integer for narrow bars
             Text(width < 24 ? String(format: "%.0f", value) : String(format: "%.1f", value))
@@ -798,13 +853,11 @@ struct UnifiedMeterBar: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
 
-            // Optional unit label (for TP)
-            if let unit = unit {
-                Text(unit)
-                    .font(.system(size: 6))
-                    .foregroundColor(.secondary)
-                    .frame(height: 8)
-            }
+            // Unit label - always reserve space for alignment
+            Text(unit ?? " ")
+                .font(.system(size: 6))
+                .foregroundColor(unit != nil ? .secondary : .clear)
+                .frame(height: 8)
         }
     }
 }
