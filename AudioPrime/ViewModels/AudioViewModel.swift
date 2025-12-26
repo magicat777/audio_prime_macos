@@ -198,9 +198,13 @@ class AudioViewModel: ObservableObject {
     nonisolated(unsafe) var integratedLoudness: Float = -23.0
     nonisolated(unsafe) var truePeak: Float = 0.0  // dBTP
 
-    // Beat detection - real-time
+    // Beat detection - real-time (client-side analysis using autocorrelation)
     nonisolated(unsafe) var currentBPM: Float = 0.0
     nonisolated(unsafe) var beatDetected = false
+    nonisolated(unsafe) var beatPhase: Float = 0.0        // 0-1 position within current beat
+    nonisolated(unsafe) var beatConfidence: Float = 0.0   // 0-1 confidence in tempo estimate
+    nonisolated(unsafe) var beatStrength: Float = 0.0     // 0-1 strength of current beat
+    private var beatDetector: BeatDetector = BeatDetector()
 
     // Stereo analysis - real-time
     nonisolated(unsafe) var stereoCorrelation: Float = 1.0  // -1 to +1
@@ -410,6 +414,9 @@ class AudioViewModel: ObservableObject {
         truePeak = engine.getTruePeak()
         currentBPM = engine.getBPM()
 
+        // Update beat phase tracking
+        updateBeatPhase()
+
         // Update stereo analysis
         stereoCorrelation = engine.getStereoCorrelation()
         leftLevel = engine.getLeftLevel()
@@ -452,6 +459,30 @@ class AudioViewModel: ObservableObject {
         // Trigger ONE SwiftUI update for all the real-time data changes
         // This replaces ~25 individual @Published updates with a single notification
         objectWillChange.send()
+    }
+
+    // MARK: - Beat Detection (Client-Side using Autocorrelation)
+
+    private func updateBeatPhase() {
+        // Process spectrum through beat detector
+        let result = beatDetector.process(spectrum: spectrumData)
+
+        // Update published values
+        currentBPM = result.bpm
+        beatDetected = result.beat
+        beatPhase = result.beatPhase
+        beatConfidence = result.confidence
+        beatStrength = result.beatStrength
+    }
+
+    /// Reset beat detector for new track
+    func resetBeatDetector() {
+        beatDetector.reset()
+        currentBPM = 0
+        beatDetected = false
+        beatPhase = 0
+        beatConfidence = 0
+        beatStrength = 0
     }
 
     // MARK: - Test Data (for UI development)

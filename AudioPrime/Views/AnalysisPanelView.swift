@@ -19,7 +19,8 @@ struct AnalysisPanelView: View {
             // Tab selector
             Picker("", selection: $selectedTab) {
                 Text("Stereo").tag(0)
-                Text("Voice").tag(1)
+                Text("Tempo").tag(1)
+                Text("Voice").tag(2)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 12)
@@ -30,8 +31,11 @@ struct AnalysisPanelView: View {
                 StereoAnalysisView(viewModel: viewModel)
                     .tag(0)
 
-                VoiceAnalysisView(viewModel: viewModel)
+                TempoAnalysisView(viewModel: viewModel)
                     .tag(1)
+
+                VoiceAnalysisView(viewModel: viewModel)
+                    .tag(2)
             }
             .tabViewStyle(.automatic)
         }
@@ -99,6 +103,275 @@ struct StereoAnalysisView: View {
             }
             .padding(12)
         }
+    }
+}
+
+// MARK: - Tempo Analysis
+struct TempoAnalysisView: View {
+    @ObservedObject var viewModel: AudioViewModel
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                // Main BPM Panel
+                if viewModel.widgetConfig.showBPM {
+                    BPMTempoPanel(viewModel: viewModel)
+                }
+
+                Spacer()
+            }
+            .padding(12)
+        }
+    }
+}
+
+// Custom magenta color for BPM display
+private let bpmMagenta = Color(red: 1.0, green: 0.0, blue: 0.8)
+
+// MARK: - BPM/Tempo Panel
+struct BPMTempoPanel: View {
+    @ObservedObject var viewModel: AudioViewModel
+
+    // Tempo classification based on BPM
+    private var tempoClass: (label: String, color: Color) {
+        let bpm = viewModel.currentBPM
+        if bpm <= 0 { return ("---", .gray) }
+        if bpm < 60 { return ("LARGO", .blue) }
+        if bpm < 80 { return ("ADAGIO", .cyan) }
+        if bpm < 100 { return ("ANDANTE", .green) }
+        if bpm < 120 { return ("MODERATO", .green) }
+        if bpm < 140 { return ("ALLEGRO", .yellow) }
+        if bpm < 180 { return ("VIVACE", .orange) }
+        return ("PRESTO", .red)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // Header
+            HStack {
+                Text("BPM / TEMPO")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                // Tempo classification badge
+                Text(tempoClass.label)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(tempoClass.color)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(tempoClass.color.opacity(0.2))
+                    .cornerRadius(3)
+            }
+
+            // Main BPM Display with beat flash
+            ZStack {
+                // Beat flash background
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(viewModel.beatDetected ?
+                          bpmMagenta.opacity(0.3) :
+                          Color.black.opacity(0.4))
+                    .animation(.easeOut(duration: 0.1), value: viewModel.beatDetected)
+
+                VStack(spacing: 4) {
+                    // BPM Value
+                    if viewModel.currentBPM > 0 {
+                        Text(String(format: "%.1f", viewModel.currentBPM))
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundColor(bpmMagenta)
+                    } else {
+                        Text("---")
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                            .foregroundColor(.gray.opacity(0.5))
+                    }
+
+                    Text("BPM")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 20)
+            }
+
+            // Beat Phase Visualization (circular)
+            BeatPhaseCircle(phase: viewModel.beatPhase, beatDetected: viewModel.beatDetected)
+                .frame(height: 100)
+
+            // Metrics Row: Confidence, Strength, Phase
+            HStack(spacing: 12) {
+                // Confidence meter
+                MetricGauge(
+                    label: "CONFIDENCE",
+                    value: viewModel.beatConfidence,
+                    color: confidenceColor(viewModel.beatConfidence),
+                    format: "%.0f%%",
+                    multiplier: 100
+                )
+
+                // Beat strength meter
+                MetricGauge(
+                    label: "STRENGTH",
+                    value: viewModel.beatStrength,
+                    color: .orange,
+                    format: "%.0f%%",
+                    multiplier: 100
+                )
+
+                // Beat phase
+                VStack(spacing: 2) {
+                    Text("PHASE")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    Text(String(format: "%.2f", viewModel.beatPhase))
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundColor(.cyan)
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+            // Reset button for new track
+            Button(action: {
+                viewModel.resetBeatDetector()
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10, weight: .medium))
+                    Text("Reset for New Track")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.gray.opacity(0.2))
+                .cornerRadius(4)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+        }
+        .padding(12)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(8)
+    }
+
+    private func confidenceColor(_ value: Float) -> Color {
+        if value > 0.7 { return .green }
+        if value > 0.4 { return .yellow }
+        return .orange
+    }
+}
+
+// MARK: - Beat Phase Circle
+struct BeatPhaseCircle: View {
+    let phase: Float
+    let beatDetected: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = min(geometry.size.width, geometry.size.height)
+            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+            let radius = size / 2 - 10
+
+            Canvas { context, _ in
+                // Draw background circle
+                let bgPath = Path(ellipseIn: CGRect(
+                    x: center.x - radius,
+                    y: center.y - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                ))
+                context.stroke(bgPath, with: .color(.gray.opacity(0.3)), lineWidth: 2)
+
+                // Draw tick marks (quarters)
+                for i in 0..<4 {
+                    let angle = CGFloat(i) * .pi / 2 - .pi / 2
+                    let innerR = radius - 8
+                    let outerR = radius
+                    var tickPath = Path()
+                    tickPath.move(to: CGPoint(
+                        x: center.x + cos(angle) * innerR,
+                        y: center.y + sin(angle) * innerR
+                    ))
+                    tickPath.addLine(to: CGPoint(
+                        x: center.x + cos(angle) * outerR,
+                        y: center.y + sin(angle) * outerR
+                    ))
+                    context.stroke(tickPath, with: .color(.gray.opacity(0.5)), lineWidth: i == 0 ? 3 : 1)
+                }
+
+                // Draw phase arc (filled portion)
+                let phaseAngle = CGFloat(phase) * 2 * .pi - .pi / 2
+                var arcPath = Path()
+                arcPath.addArc(
+                    center: center,
+                    radius: radius - 4,
+                    startAngle: .radians(-.pi / 2),
+                    endAngle: .radians(Double(phaseAngle)),
+                    clockwise: false
+                )
+                context.stroke(arcPath, with: .color(Color(red: 1.0, green: 0.0, blue: 0.8).opacity(0.6)), lineWidth: 6)
+
+                // Draw phase indicator dot
+                let dotX = center.x + cos(phaseAngle) * (radius - 4)
+                let dotY = center.y + sin(phaseAngle) * (radius - 4)
+                let dotSize: CGFloat = beatDetected ? 14 : 10
+                let dotPath = Path(ellipseIn: CGRect(
+                    x: dotX - dotSize / 2,
+                    y: dotY - dotSize / 2,
+                    width: dotSize,
+                    height: dotSize
+                ))
+                context.fill(dotPath, with: .color(Color(red: 1.0, green: 0.0, blue: 0.8)))
+
+                // Draw center beat indicator
+                if beatDetected {
+                    let centerDot = Path(ellipseIn: CGRect(
+                        x: center.x - 8,
+                        y: center.y - 8,
+                        width: 16,
+                        height: 16
+                    ))
+                    context.fill(centerDot, with: .color(Color(red: 1.0, green: 0.0, blue: 0.8).opacity(0.8)))
+                }
+
+                // Draw "1" label at top
+                context.draw(
+                    Text("1").font(.system(size: 10, weight: .bold)).foregroundColor(.white),
+                    at: CGPoint(x: center.x, y: center.y - radius + 20)
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Metric Gauge (reusable)
+struct MetricGauge: View {
+    let label: String
+    let value: Float
+    let color: Color
+    let format: String
+    let multiplier: Float
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(.secondary)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.gray.opacity(0.3))
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(color.opacity(0.7))
+                        .frame(width: geometry.size.width * CGFloat(min(1, value)))
+                }
+            }
+            .frame(height: 8)
+
+            Text(String(format: format, value * multiplier))
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(color)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
