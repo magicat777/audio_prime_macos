@@ -46,47 +46,9 @@ struct StereoAnalysisView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                // Correlation Meter - conditional
-                if viewModel.widgetConfig.showCorrelation {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Stereo Correlation")
-                            .font(.caption.bold())
-                            .foregroundColor(.secondary)
-
-                        HStack {
-                            Text("L")
-                                .font(.caption2)
-                            ProgressView(value: (Double(viewModel.stereoCorrelation) + 1.0) / 2.0)
-                                .tint(viewModel.stereoCorrelation > 0 ? .green : .red)
-                            Text("R")
-                                .font(.caption2)
-                        }
-
-                        Text(String(format: "%.2f", viewModel.stereoCorrelation))
-                            .font(.title3.monospacedDigit())
-                            .foregroundColor(viewModel.stereoCorrelation > 0 ? .green : .orange)
-                    }
-                    .padding()
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                    .cornerRadius(8)
-                }
-
-                // M/S Metering - conditional
-                if viewModel.widgetConfig.showMidSide {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Mid/Side Levels")
-                            .font(.caption.bold())
-                            .foregroundColor(.secondary)
-
-                        HStack(spacing: 20) {
-                            StereoMeter(label: "Mid", value: viewModel.midLevel, color: .blue)
-                            StereoMeter(label: "Side", value: viewModel.sideLevel, color: .orange)
-                        }
-                        .frame(height: 80)
-                    }
-                    .padding()
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                    .cornerRadius(8)
+                // Comprehensive Stereo Correlation Panel - conditional
+                if viewModel.widgetConfig.showCorrelation || viewModel.widgetConfig.showMidSide {
+                    StereoCorrelationPanel(viewModel: viewModel)
                 }
 
                 // Goniometer/Vectorscope/Polar display - conditional
@@ -223,7 +185,234 @@ struct VoiceAnalysisView: View {
     }
 }
 
-// MARK: - Stereo Meter
+// MARK: - Comprehensive Stereo Correlation Panel
+struct StereoCorrelationPanel: View {
+    @ObservedObject var viewModel: AudioViewModel
+
+    // Correlation status based on value
+    private var correlationStatus: (label: String, color: Color) {
+        let corr = viewModel.stereoCorrelation
+        if corr > 0.95 { return ("MONO", .green) }
+        if corr > 0.5 { return ("CORR", .green) }
+        if corr > 0.0 { return ("WIDE", .yellow) }
+        if corr > -0.5 { return ("DIFF", .orange) }
+        return ("OUT", .red)
+    }
+
+    // Calculate stereo width (0-100%)
+    private var stereoWidth: Float {
+        // Width = Side / Mid ratio, clamped to 0-1
+        let mid = max(viewModel.midLevel, 0.001)
+        let side = viewModel.sideLevel
+        return min(1.0, side / mid)
+    }
+
+    // Calculate balance (-1 = full left, 0 = center, +1 = full right)
+    private var stereoBalance: Float {
+        let left = max(viewModel.leftLevel, 0.001)
+        let right = max(viewModel.rightLevel, 0.001)
+        let total = left + right
+        return (right - left) / total
+    }
+
+    // Color for correlation value
+    private func correlationColor(_ value: Float) -> Color {
+        if value > 0.5 { return .green }
+        if value > 0.0 { return .yellow }
+        if value > -0.5 { return .orange }
+        return .red
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header with title and status
+            HStack {
+                Text("STEREO CORRELATION")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                // Status indicator
+                Text(correlationStatus.label)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(correlationStatus.color)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(correlationStatus.color.opacity(0.2))
+                    .cornerRadius(3)
+            }
+
+            // Main Correlation Meter Bar
+            VStack(spacing: 4) {
+                // Scale labels
+                HStack {
+                    Text("-1")
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("0")
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("+1")
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                // Correlation bar with position indicator
+                GeometryReader { geometry in
+                    let width = geometry.size.width
+                    let height: CGFloat = 20
+                    let centerX = width / 2
+                    let position = CGFloat((viewModel.stereoCorrelation + 1) / 2) * width
+
+                    ZStack(alignment: .leading) {
+                        // Background
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(height: height)
+
+                        // Center line
+                        Rectangle()
+                            .fill(Color.white.opacity(0.3))
+                            .frame(width: 1, height: height)
+                            .position(x: centerX, y: height / 2)
+
+                        // Fill from center to position
+                        let fillStart = min(centerX, position)
+                        let fillWidth = abs(position - centerX)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(correlationColor(viewModel.stereoCorrelation).opacity(0.6))
+                            .frame(width: fillWidth, height: height - 4)
+                            .position(x: fillStart + fillWidth / 2, y: height / 2)
+
+                        // Position indicator
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(correlationColor(viewModel.stereoCorrelation))
+                            .frame(width: 4, height: height)
+                            .position(x: position, y: height / 2)
+                    }
+                }
+                .frame(height: 20)
+
+                // Correlation value display
+                Text(String(format: "%+.2f", viewModel.stereoCorrelation))
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundColor(correlationColor(viewModel.stereoCorrelation))
+                    .frame(maxWidth: .infinity)
+            }
+
+            // Statistics Row: Width, Balance, Mid/Side
+            HStack(spacing: 12) {
+                // Width meter
+                VStack(spacing: 2) {
+                    Text("WIDTH")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.gray.opacity(0.3))
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(LinearGradient(
+                                    colors: [.green, .yellow],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ))
+                                .frame(width: geometry.size.width * CGFloat(stereoWidth))
+                        }
+                    }
+                    .frame(height: 8)
+
+                    Text(String(format: "%.0f%%", stereoWidth * 100))
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.cyan)
+                }
+                .frame(maxWidth: .infinity)
+
+                // Balance indicator
+                VStack(spacing: 2) {
+                    Text("BALANCE")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    GeometryReader { geometry in
+                        let width = geometry.size.width
+                        let centerX = width / 2
+                        let indicatorPos = centerX + CGFloat(stereoBalance) * (width / 2)
+
+                        ZStack {
+                            // Background
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.gray.opacity(0.3))
+
+                            // Center marker
+                            Rectangle()
+                                .fill(Color.white.opacity(0.4))
+                                .frame(width: 1, height: 8)
+                                .position(x: centerX, y: 4)
+
+                            // Balance indicator
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.cyan)
+                                .frame(width: 6, height: 8)
+                                .position(x: indicatorPos, y: 4)
+                        }
+                    }
+                    .frame(height: 8)
+
+                    // Balance label
+                    let balanceLabel = stereoBalance < -0.1 ? "L" : (stereoBalance > 0.1 ? "R" : "C")
+                    Text(balanceLabel)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.cyan)
+                }
+                .frame(maxWidth: .infinity)
+
+                // Mid/Side Levels
+                VStack(spacing: 2) {
+                    Text("MID/SIDE")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 4) {
+                        // Mid level
+                        VStack(spacing: 0) {
+                            Text("M")
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundColor(.blue)
+                            Text(formatDB(viewModel.midLevel))
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundColor(.blue)
+                        }
+
+                        // Side level
+                        VStack(spacing: 0) {
+                            Text("S")
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundColor(.orange)
+                            Text(formatDB(viewModel.sideLevel))
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(12)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(8)
+    }
+
+    private func formatDB(_ level: Float) -> String {
+        if level < 0.001 { return "---" }
+        let db = 20 * log10(level)
+        return String(format: "%.1f", db)
+    }
+}
+
+// MARK: - Stereo Meter (kept for compatibility)
 struct StereoMeter: View {
     let label: String
     let value: Float
