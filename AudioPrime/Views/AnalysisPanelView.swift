@@ -50,6 +50,9 @@ struct StereoAnalysisView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                // Frequency Bands Panel
+                FrequencyBandsPanel(viewModel: viewModel)
+
                 // Comprehensive Stereo Correlation Panel - conditional
                 if viewModel.widgetConfig.showCorrelation || viewModel.widgetConfig.showMidSide {
                     StereoCorrelationPanel(viewModel: viewModel)
@@ -682,6 +685,299 @@ struct StereoCorrelationPanel: View {
         if level < 0.001 { return "---" }
         let db = 20 * log10(level)
         return String(format: "%.1f", db)
+    }
+}
+
+// MARK: - Frequency Bands Panel
+struct FrequencyBandsPanel: View {
+    @ObservedObject var viewModel: AudioViewModel
+    @State private var displayMode: FrequencyBandsDisplayMode = .horizontal
+    @StateObject private var peakHoldState = FrequencyBandsPeakHoldState()
+
+    // Spectrum configuration
+    private let totalBars = 512
+    private let spectrumMinFreq: Float = 20
+    private let spectrumMaxFreq: Float = 20000
+
+    enum FrequencyBandsDisplayMode {
+        case horizontal
+        case vertical
+
+        var label: String {
+            switch self {
+            case .horizontal: return "HORIZ"
+            case .vertical: return "VERT"
+            }
+        }
+    }
+
+    // Band definitions for horizontal mode (7 bands)
+    private let horizontalBands: [(name: String, label: String, min: Float, max: Float)] = [
+        ("Sub-Bass", "20", 20, 60),
+        ("Bass", "60", 60, 250),
+        ("Low-Mid", "250", 250, 500),
+        ("Mid", "500", 500, 2000),
+        ("Upper-Mid", "2k", 2000, 4000),
+        ("Presence", "4k", 4000, 6000),
+        ("Brilliance", "6k", 6000, 20000)
+    ]
+
+    // Band definitions for vertical mode (14 bands)
+    private let verticalBands: [(name: String, label: String, min: Float, max: Float)] = [
+        ("20-40", "20", 20, 40),
+        ("40-63", "40", 40, 63),
+        ("63-125", "63", 63, 125),
+        ("125-250", "125", 125, 250),
+        ("250-500", "250", 250, 500),
+        ("500-1k", "500", 500, 1000),
+        ("1k-2k", "1k", 1000, 2000),
+        ("2k-3k", "2k", 2000, 3000),
+        ("3k-4k", "3k", 3000, 4000),
+        ("4k-5k", "4k", 4000, 5000),
+        ("5k-6k", "5k", 5000, 6000),
+        ("6k-10k", "6k", 6000, 10000),
+        ("10k-16k", "10k", 10000, 16000),
+        ("16k-20k", "16k", 16000, 20000)
+    ]
+
+    // Convert frequency to bar index (logarithmic mapping)
+    private func freqToBar(_ freq: Float) -> Int {
+        let t = log(freq / spectrumMinFreq) / log(spectrumMaxFreq / spectrumMinFreq)
+        return max(0, min(totalBars - 1, Int(t * Float(totalBars - 1))))
+    }
+
+    // Convert bar index to frequency
+    private func barToFreq(_ bar: Int) -> Float {
+        let t = Float(bar) / Float(totalBars - 1)
+        return spectrumMinFreq * pow(spectrumMaxFreq / spectrumMinFreq, t)
+    }
+
+    // Calculate band energy
+    private func calculateBandEnergy(minFreq: Float, maxFreq: Float) -> Float {
+        let startBar = freqToBar(minFreq)
+        let endBar = min(freqToBar(maxFreq), viewModel.spectrumData.count - 1)
+
+        guard endBar > startBar else { return 0 }
+
+        var sum: Float = 0
+        var count = 0
+
+        for i in startBar...endBar {
+            sum += viewModel.spectrumData[i]
+            count += 1
+        }
+
+        return count > 0 ? (sum / Float(count)) * 100 : 0
+    }
+
+    // Find dominant frequency
+    private var dominantFrequency: Float {
+        var maxVal: Float = 0
+        var maxBar = 0
+
+        // Use stride of 4 for performance
+        for i in stride(from: 1, to: viewModel.spectrumData.count, by: 4) {
+            if viewModel.spectrumData[i] > maxVal {
+                maxVal = viewModel.spectrumData[i]
+                maxBar = i
+            }
+        }
+
+        return barToFreq(maxBar)
+    }
+
+    // Check if signal is present
+    private var signalPresent: Bool {
+        let data = viewModel.spectrumData
+        guard data.count > 300 else { return false }
+        return data[50] > 0.05 || data[150] > 0.05 || data[300] > 0.05
+    }
+
+    // Get current band energies
+    private var currentBandEnergies: [Float] {
+        let bands = displayMode == .horizontal ? horizontalBands : verticalBands
+        return bands.map { calculateBandEnergy(minFreq: $0.min, maxFreq: $0.max) }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            // Header with dominant frequency and mode toggle
+            HStack {
+                Text(signalPresent ? String(format: "%.0f Hz", dominantFrequency) : "--- Hz")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.cyan)
+
+                Spacer()
+
+                Button(action: {
+                    displayMode = displayMode == .horizontal ? .vertical : .horizontal
+                    // Reset peak holds on mode change
+                    peakHoldState.reset(count: displayMode == .horizontal ? 7 : 14)
+                }) {
+                    HStack(spacing: 4) {
+                        Text(displayMode.label)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                        Circle()
+                            .fill(displayMode == .horizontal ? .purple : .green)
+                            .frame(width: 6, height: 6)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.gray.opacity(0.3))
+                    .cornerRadius(3)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Band meters
+            if displayMode == .horizontal {
+                horizontalBandsView
+            } else {
+                verticalBandsView
+            }
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(8)
+        .onChange(of: viewModel.spectrumData) { _ in
+            peakHoldState.update(energies: currentBandEnergies)
+        }
+    }
+
+    // Horizontal mode view (7 bands)
+    private var horizontalBandsView: some View {
+        VStack(spacing: 4) {
+            ForEach(Array(horizontalBands.enumerated()), id: \.offset) { index, band in
+                let energy = calculateBandEnergy(minFreq: band.min, maxFreq: band.max)
+                let peakHold = peakHoldState.peakHolds.indices.contains(index) ? peakHoldState.peakHolds[index] : energy
+
+                HStack(spacing: 6) {
+                    Text(band.name)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                        .frame(width: 60, alignment: .leading)
+                        .lineLimit(1)
+
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            // Background
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.gray.opacity(0.3))
+
+                            // Energy bar with gradient
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(LinearGradient(
+                                    colors: [.green, .yellow, .red],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ))
+                                .frame(width: geometry.size.width * CGFloat(min(1, energy / 100)))
+
+                            // Peak hold indicator
+                            if peakHold > 0.5 {
+                                Rectangle()
+                                    .fill(Color.white)
+                                    .frame(width: 2, height: geometry.size.height)
+                                    .offset(x: geometry.size.width * CGFloat(min(1, peakHold / 100)) - 1)
+                                    .shadow(color: .white.opacity(0.6), radius: 2)
+                            }
+                        }
+                    }
+                    .frame(height: 10)
+
+                    Text(String(format: "%.0f", peakHold))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .frame(width: 24, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    // Vertical mode view (14 bands)
+    private var verticalBandsView: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(verticalBands.enumerated()), id: \.offset) { index, band in
+                let energy = calculateBandEnergy(minFreq: band.min, maxFreq: band.max)
+                let peakHold = peakHoldState.peakHolds.indices.contains(index) ? peakHoldState.peakHolds[index] : energy
+
+                VStack(spacing: 2) {
+                    Text(String(format: "%.0f", peakHold))
+                        .font(.system(size: 7, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .frame(height: 12)
+
+                    GeometryReader { geometry in
+                        ZStack(alignment: .bottom) {
+                            // Background
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.gray.opacity(0.3))
+
+                            // Energy bar with vertical gradient
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(LinearGradient(
+                                    colors: [.green, .yellow, .red],
+                                    startPoint: .bottom,
+                                    endPoint: .top
+                                ))
+                                .frame(height: geometry.size.height * CGFloat(min(1, energy / 100)))
+
+                            // Peak hold indicator
+                            if peakHold > 0.5 {
+                                Rectangle()
+                                    .fill(Color.white)
+                                    .frame(width: geometry.size.width, height: 2)
+                                    .offset(y: -geometry.size.height * CGFloat(min(1, peakHold / 100)) + 1)
+                                    .shadow(color: .white.opacity(0.6), radius: 2)
+                            }
+                        }
+                    }
+
+                    Text(band.label)
+                        .font(.system(size: 7))
+                        .foregroundColor(.secondary)
+                        .frame(height: 12)
+                }
+            }
+        }
+        .frame(minHeight: 100)
+    }
+}
+
+// MARK: - Peak Hold State Object
+class FrequencyBandsPeakHoldState: ObservableObject {
+    @Published var peakHolds: [Float] = Array(repeating: 0, count: 14)
+    private var peakHoldTimes: [Date] = Array(repeating: Date.distantPast, count: 14)
+
+    // Peak hold settings
+    private let peakHoldDuration: TimeInterval = 1.5
+    private let peakDecayRate: Float = 0.15
+
+    func reset(count: Int) {
+        peakHolds = Array(repeating: 0, count: count)
+        peakHoldTimes = Array(repeating: Date.distantPast, count: count)
+    }
+
+    func update(energies: [Float]) {
+        let now = Date()
+
+        // Resize arrays if needed
+        if peakHolds.count != energies.count {
+            peakHolds = Array(repeating: 0, count: energies.count)
+            peakHoldTimes = Array(repeating: Date.distantPast, count: energies.count)
+        }
+
+        for i in 0..<energies.count {
+            let energy = energies[i]
+
+            if energy > peakHolds[i] {
+                peakHolds[i] = energy
+                peakHoldTimes[i] = now
+            } else if now.timeIntervalSince(peakHoldTimes[i]) > peakHoldDuration {
+                peakHolds[i] = max(energy, peakHolds[i] * (1 - peakDecayRate))
+            }
+        }
     }
 }
 
