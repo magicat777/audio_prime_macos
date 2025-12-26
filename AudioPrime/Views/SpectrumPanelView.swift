@@ -249,15 +249,36 @@ struct SpectrumPanelView: View {
 struct OscilloscopePanelView: View {
     @ObservedObject var viewModel: AudioViewModel
 
+    // Auto-gain state (persisted across frames)
+    @State private var currentGain: CGFloat = 1.0
+
+    // Auto-gain parameters (matching AUDIO_PRIME reference)
+    private let targetAmplitude: CGFloat = 0.7  // Target 70% of screen height
+    private let minGain: CGFloat = 1.0
+    private let maxGain: CGFloat = 50.0
+    private let attackRate: CGFloat = 0.1   // Gain increase rate
+    private let releaseRate: CGFloat = 0.02 // Gain decrease rate
+    private let peakThreshold: CGFloat = 0.001
+
     var body: some View {
         VStack(spacing: 0) {
-            // Panel header
+            // Panel header with ms/div display
             HStack {
                 Image(systemName: "waveform.path")
-                    .foregroundColor(.cyan)
+                    .foregroundColor(Color(red: 0.29, green: 0.86, blue: 0.59))  // Cyan-green
                 Text("Oscilloscope")
                     .font(.caption.bold())
                 Spacer()
+                // Time scale display (ms/div)
+                let msPerDiv = (1000.0 / 48000.0) * Double(viewModel.waveformLeft.count) / 8.0
+                Text(String(format: "%.2f ms/div", msPerDiv))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
+                // Gain indicator
+                Text(String(format: "×%.1f", currentGain))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(currentGain > 10 ? .orange : .secondary)
+                    .padding(.leading, 8)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -274,50 +295,88 @@ struct OscilloscopePanelView: View {
                     let plotHeight = size.height - topMargin - bottomMargin
                     let centerY = topMargin + plotHeight / 2
 
+                    // Draw background (darker)
+                    let bgRect = CGRect(x: leftMargin, y: topMargin, width: plotWidth, height: plotHeight)
+                    context.fill(Path(bgRect), with: .color(Color(red: 0.03, green: 0.04, blue: 0.06)))
+
                     // Draw grid
                     drawOscilloscopeGrid(context: context, size: size,
                                          leftMargin: leftMargin, rightMargin: rightMargin,
                                          topMargin: topMargin, bottomMargin: bottomMargin)
 
-                    // Draw waveforms
+                    // Calculate mono waveform and auto-gain
                     let waveformSize = viewModel.waveformLeft.count
-                    let pointSpacing = plotWidth / CGFloat(waveformSize - 1)
+                    var monoWaveform = [CGFloat](repeating: 0, count: waveformSize)
+                    var peakLevel: CGFloat = 0
 
-                    // Left channel (magenta/pink)
-                    var leftPath = Path()
                     for i in 0..<waveformSize {
-                        let x = leftMargin + CGFloat(i) * pointSpacing
-                        // Waveform is -1 to +1, map to plot height
-                        let sample = CGFloat(viewModel.waveformLeft[i])
-                        let y = centerY - sample * (plotHeight / 2) * 0.9  // 90% height to avoid clipping
-                        if i == 0 {
-                            leftPath.move(to: CGPoint(x: x, y: y))
-                        } else {
-                            leftPath.addLine(to: CGPoint(x: x, y: y))
+                        let mono = (CGFloat(viewModel.waveformLeft[i]) + CGFloat(viewModel.waveformRight[i])) * 0.5
+                        monoWaveform[i] = mono
+                        peakLevel = max(peakLevel, abs(mono))
+                    }
+
+                    // Find trigger point (zero-crossing with positive slope)
+                    var triggerPoint = 0
+                    for i in 1..<(waveformSize / 4) {
+                        if monoWaveform[i - 1] <= 0 && monoWaveform[i] > 0 {
+                            triggerPoint = i
+                            break
                         }
                     }
-                    context.stroke(leftPath, with: .color(Color(red: 0.9, green: 0.3, blue: 0.6).opacity(0.9)), lineWidth: 1.5)
 
-                    // Right channel (cyan)
-                    var rightPath = Path()
-                    for i in 0..<waveformSize {
-                        let x = leftMargin + CGFloat(i) * pointSpacing
-                        let sample = CGFloat(viewModel.waveformRight[i])
-                        let y = centerY - sample * (plotHeight / 2) * 0.9
-                        if i == 0 {
-                            rightPath.move(to: CGPoint(x: x, y: y))
+                    // Calculate display gain
+                    var displayGain = currentGain
+                    if peakLevel > peakThreshold {
+                        let neededGain = targetAmplitude / peakLevel
+                        let clampedGain = min(max(neededGain, minGain), maxGain)
+                        if clampedGain > displayGain {
+                            displayGain = displayGain + (clampedGain - displayGain) * attackRate
                         } else {
-                            rightPath.addLine(to: CGPoint(x: x, y: y))
+                            displayGain = displayGain + (clampedGain - displayGain) * releaseRate
                         }
                     }
-                    context.stroke(rightPath, with: .color(Color(red: 0.3, green: 0.8, blue: 0.9).opacity(0.9)), lineWidth: 1.5)
+
+                    // Draw waveform with glow effect
+                    let displaySamples = max(2, min(waveformSize - triggerPoint, Int(plotWidth)))
+                    let pointSpacing = plotWidth / CGFloat(max(1, displaySamples - 1))
+
+                    // Create waveform path
+                    var waveformPath = Path()
+                    for i in 0..<displaySamples {
+                        let sampleIdx = triggerPoint + i
+                        guard sampleIdx < waveformSize else { break }
+
+                        let x = leftMargin + CGFloat(i) * pointSpacing
+                        let sample = monoWaveform[sampleIdx] * displayGain
+                        let clampedSample = max(-1.0, min(1.0, sample))
+                        let y = centerY - clampedSample * (plotHeight / 2) * 0.95
+
+                        if i == 0 {
+                            waveformPath.move(to: CGPoint(x: x, y: y))
+                        } else {
+                            waveformPath.addLine(to: CGPoint(x: x, y: y))
+                        }
+                    }
+
+                    // Draw glow (wider, lower opacity stroke behind)
+                    let glowColor = Color(red: 0.29, green: 0.86, blue: 0.59).opacity(0.3)
+                    context.stroke(waveformPath, with: .color(glowColor), lineWidth: 4)
+
+                    // Draw main waveform (cyan-green like AUDIO_PRIME)
+                    let waveformColor = Color(red: 0.29, green: 0.86, blue: 0.59)
+                    context.stroke(waveformPath, with: .color(waveformColor), lineWidth: 1.5)
 
                     // Draw amplitude labels
                     drawOscilloscopeLabels(context: context, size: size,
                                            leftMargin: leftMargin, topMargin: topMargin, bottomMargin: bottomMargin)
+
+                    // Update gain state asynchronously
+                    DispatchQueue.main.async {
+                        self.currentGain = displayGain
+                    }
                 }
             }
-            .background(Color.black.opacity(0.8))
+            .background(Color.black.opacity(0.95))
             .cornerRadius(8)
         }
         .background(Color(NSColor.controlBackgroundColor))
@@ -330,8 +389,8 @@ struct OscilloscopePanelView: View {
         let plotWidth = size.width - leftMargin - rightMargin
         let plotHeight = size.height - topMargin - bottomMargin
         let centerY = topMargin + plotHeight / 2
-        let gridColor = Color.white.opacity(0.15)
-        let centerLineColor = Color.white.opacity(0.3)
+        let gridColor = Color.white.opacity(0.06)  // Faint grid like AUDIO_PRIME
+        let centerLineColor = Color.white.opacity(0.15)
 
         // Center line (0 amplitude)
         var centerPath = Path()
@@ -341,7 +400,7 @@ struct OscilloscopePanelView: View {
 
         // Horizontal grid lines at ±0.5 amplitude
         let quarterHeight = plotHeight / 4
-        for offset: CGFloat in [-1, 1] {
+        for offset: CGFloat in [-2, -1, 1, 2] {
             var path = Path()
             let y = centerY + offset * quarterHeight
             path.move(to: CGPoint(x: leftMargin, y: y))
@@ -349,7 +408,7 @@ struct OscilloscopePanelView: View {
             context.stroke(path, with: .color(gridColor), lineWidth: 0.5)
         }
 
-        // Vertical grid lines (time divisions)
+        // Vertical grid lines (8 time divisions)
         let numDivisions = 8
         for i in 0...numDivisions {
             let x = leftMargin + plotWidth * CGFloat(i) / CGFloat(numDivisions)
@@ -369,7 +428,7 @@ struct OscilloscopePanelView: View {
         let labels = [("+1", topMargin + 4), ("0", centerY), ("-1", topMargin + plotHeight - 4)]
         for (label, y) in labels {
             context.draw(
-                Text(label).font(.system(size: 8)).foregroundColor(.white.opacity(0.6)),
+                Text(label).font(.system(size: 8)).foregroundColor(.white.opacity(0.5)),
                 at: CGPoint(x: 14, y: y)
             )
         }
