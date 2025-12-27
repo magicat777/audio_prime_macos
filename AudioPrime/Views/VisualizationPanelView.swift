@@ -11,7 +11,9 @@ import SwiftUI
 struct VisualizationPanelView: View {
     @ObservedObject var viewModel: AudioViewModel
     @State private var selectedVisualization = 0
+    @State private var barCount = 128
 
+    let barCountOptions = [128, 256, 512]
     let visualizations = [
         "Cylindrical Bars",
         "Frequency Sphere",
@@ -29,49 +31,51 @@ struct VisualizationPanelView: View {
 
                 Spacer()
 
+                // Visualization picker (fixed width to prevent resizing)
                 Picker("", selection: $selectedVisualization) {
                     ForEach(0..<visualizations.count, id: \.self) { index in
                         Text(visualizations[index]).tag(index)
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 200)
-                .padding(.trailing, 12)
-            }
+                .frame(width: 180, alignment: .trailing)
+                .fixedSize()
 
-            // Metal view placeholder
-            // TODO: Replace with actual Metal rendering view
-            ZStack {
-                // Gradient background
-                LinearGradient(
-                    colors: [.black, .blue.opacity(0.3), .purple.opacity(0.2)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                VStack(spacing: 20) {
-                    Image(systemName: "cube.transparent")
-                        .font(.system(size: 80))
-                        .foregroundColor(.white.opacity(0.3))
-
-                    Text(visualizations[selectedVisualization])
-                        .font(.title2)
-                        .foregroundColor(.white.opacity(0.5))
-
-                    Text("Metal 3D rendering")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.3))
-
-                    if viewModel.beatDetected {
-                        Circle()
-                            .fill(Color.green.opacity(0.8))
-                            .frame(width: 20, height: 20)
-                            .overlay(Text("♪").foregroundColor(.white))
+                // Bar count button
+                Button(action: {
+                    if let currentIndex = barCountOptions.firstIndex(of: barCount) {
+                        let nextIndex = (currentIndex + 1) % barCountOptions.count
+                        barCount = barCountOptions[nextIndex]
                     }
+                }) {
+                    Text("\(barCount) bars")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                        )
                 }
+                .buttonStyle(.plain)
+                .frame(width: 70)
+
+                // Beat indicator (always present, opacity changes)
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 12, height: 12)
+                    .opacity(viewModel.beatDetected ? 0.9 : 0.15)
+                    .padding(.horizontal, 8)
             }
-            .cornerRadius(8)
-            .padding(12)
+            .padding(.trailing, 8)
+
+            // Metal 3D view
+            MetalView(viewModel: viewModel, selectedVisualization: $selectedVisualization, barCount: $barCount)
+                .cornerRadius(8)
+                .padding(12)
         }
         .background(Color(NSColor.controlBackgroundColor))
     }

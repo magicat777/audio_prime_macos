@@ -19,7 +19,11 @@ let package = Package(
             name: "AudioPrime",
             dependencies: ["AudioPrimeCore"],
             path: "AudioPrime",
-            resources: [.process("Resources")]
+            resources: [.process("Resources")],
+            linkerSettings: [
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit")
+            ]
         ),
 
         // C++ audio processing core
